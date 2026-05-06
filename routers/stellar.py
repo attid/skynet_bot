@@ -71,7 +71,7 @@ async def cmd_show_balance(message: Message, app_context=None):
     result = await ctx.stellar_service.get_cash_balance(message.chat.id)
     from other.img_tools import create_image_with_text
 
-    create_image_with_text(result, image_size=(550, 600))
+    create_image_with_text(result, image_size=(550, None))
     await message.answer_photo(FSInputFile(start_path + "/data/output_image.png"))
 
 
