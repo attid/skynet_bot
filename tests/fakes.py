@@ -910,6 +910,7 @@ class FakeFeatureFlagsService:
         "entry_channel",
         "notify_join",
         "notify_message",
+        "selfmod",
     ]
 
     def __init__(self):
@@ -1470,6 +1471,7 @@ class FakeDatabaseService:
 
     def __init__(self):
         self._chats = {}  # chat_id -> ChatDTO
+        self._bot_values: dict[tuple[int, object], object] = {}
 
     async def get_chat_by_id(self, chat_id: int):
         """Get chat from database by ID, returns ChatDTO or None."""
@@ -1486,6 +1488,97 @@ class FakeDatabaseService:
         from db.repositories import ChatDTO
 
         self._chats[chat_id] = ChatDTO(chat_id=chat_id, title=title, username=username, admins=[])
+
+    @staticmethod
+    def _key(chat_key):
+        from enum import Enum
+
+        if isinstance(chat_key, Enum):
+            return chat_key.value
+        return chat_key
+
+    async def save_bot_value(self, chat_id: int, chat_key, chat_value) -> None:
+        key = (chat_id, self._key(chat_key))
+        if chat_value is None:
+            self._bot_values.pop(key, None)
+        else:
+            self._bot_values[key] = chat_value
+
+    async def load_bot_value(self, chat_id: int, chat_key, default_value=""):
+        return self._bot_values.get((chat_id, self._key(chat_key)), default_value)
+
+
+class FakeSelfmodService:
+    """In-memory Fake of SelfmodService for tests that don't need DB persistence.
+
+    Mirrors the real service's surface used by routers; not a full reimplementation.
+    """
+
+    def __init__(self):
+        from services.selfmod_service import VoteState, threshold_passed, mute_duration_for_level  # noqa: F401
+
+        self._VoteState = VoteState
+        self._threshold_passed = threshold_passed
+        self._votes: dict[tuple[int, int], VoteState] = {}
+        self._warnings: dict[int, dict[int, int]] = {}
+
+    async def start_vote(self, kind, chat_id, vote_msg_id, target_user_id, target_mention, target_msg_id=None):
+        from datetime import datetime, timezone
+
+        state = self._VoteState(
+            kind=kind,
+            chat_id=chat_id,
+            vote_msg_id=vote_msg_id,
+            target_user_id=target_user_id,
+            target_mention=target_mention,
+            target_msg_id=target_msg_id,
+            started_at=datetime.now(timezone.utc).isoformat(),
+        )
+        self._votes[(chat_id, vote_msg_id)] = state
+        return state
+
+    def get_vote(self, chat_id, vote_msg_id):
+        return self._votes.get((chat_id, vote_msg_id))
+
+    def has_active_mute_vote(self, chat_id, target_user_id):
+        for (cid, _), st in self._votes.items():
+            if cid == chat_id and st.target_user_id == target_user_id and st.kind in ("mute", "kick"):
+                return True
+        return False
+
+    async def cast(self, chat_id, vote_msg_id, voter_id, voter_mention, choice):
+        from services.selfmod_service import VoteResult
+
+        state = self._votes.get((chat_id, vote_msg_id))
+        if state is None:
+            return None
+        if state.has_voted(voter_id):
+            return VoteResult(state=state, outcome=None, already_voted=True)
+        (state.yes_voters if choice else state.no_voters).append(voter_id)
+        state.voter_mentions[str(voter_id)] = voter_mention
+        return VoteResult(state=state, outcome=self._threshold_passed(state.yes(), state.no()))
+
+    async def close_vote(self, chat_id, vote_msg_id):
+        self._votes.pop((chat_id, vote_msg_id), None)
+
+    async def get_warnings(self, chat_id, user_id):
+        return self._warnings.get(chat_id, {}).get(user_id, 0)
+
+    async def add_warning(self, chat_id, user_id):
+        bucket = self._warnings.setdefault(chat_id, {})
+        bucket[user_id] = bucket.get(user_id, 0) + 1
+        return bucket[user_id]
+
+    async def reset_warnings(self, chat_id, user_id):
+        if chat_id in self._warnings:
+            self._warnings[chat_id].pop(user_id, None)
+
+    async def list_warnings(self, chat_id):
+        return dict(self._warnings.get(chat_id, {}))
+
+    # Test helpers
+    def set_warning_count(self, chat_id, user_id, count):
+        self._warnings.setdefault(chat_id, {})[user_id] = count
 
 
 class TestAppContext:
@@ -1518,6 +1611,7 @@ class TestAppContext:
         self.command_registry = FakeCommandRegistryService()
         self.db_service = FakeDatabaseService()
         self.channel_link_service = ChannelLinkService()
+        self.selfmod_service = FakeSelfmodService()
         self.message_thread_cache_service = FakeMessageThreadCacheService()
         self.admin_id = 123456
         # Wire admin_service to utils_service

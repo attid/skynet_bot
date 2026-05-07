@@ -366,6 +366,16 @@ async def new_chat_member(event: ChatMemberUpdated, session: Session, bot: Bot, 
             reply_markup=kb_unban,
         )
 
+    selfmod_enabled = feature_flags.is_enabled(chat_id, "selfmod") if feature_flags else False
+    if selfmod_enabled:
+        from routers.selfmod import begin_join_vote
+
+        try:
+            await begin_join_vote(bot, event.chat, event.new_chat_member.user, app_context)
+        except Exception as e:
+            logger.warning("selfmod begin_join_vote failed chat={} user={} err={}", chat_id, new_user_id, e)
+        return
+
     welcome_msg = config_service.get_welcome_message(chat_id)
 
     if welcome_msg:

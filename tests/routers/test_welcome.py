@@ -79,6 +79,45 @@ async def test_new_chat_member_welcome(mock_telegram, router_app_context):
 
 
 @pytest.mark.asyncio
+async def test_new_chat_member_with_selfmod_skips_captcha(mock_telegram, router_app_context):
+    """When selfmod is enabled, new joiners get a vote instead of captcha."""
+    dp = router_app_context.dispatcher
+    dp.chat_member.middleware(RouterTestMiddleware(router_app_context))
+    dp.include_router(welcome_router)
+
+    chat_id = MTLChats.TestGroup
+    router_app_context.feature_flags.enable(chat_id, "selfmod")
+    # Set a welcome message that should NOT be sent (selfmod replaces captcha+welcome flow)
+    router_app_context.config_service.set_welcome_message(chat_id, "Welcome $$USER$$!")
+
+    user = types.User(id=8888, is_bot=False, first_name="Joiner", username="joiner")
+    router_app_context.antispam_service.combo_check_spammer.return_value = False
+    router_app_context.antispam_service.lols_check_spammer.return_value = False
+    router_app_context.group_service.enforce_entry_channel.return_value = (True, None)
+    router_app_context.config_service.set_user_status(user.id, 0)
+
+    event = types.ChatMemberUpdated(
+        chat=types.Chat(id=chat_id, type="supergroup", title="Test Chat"),
+        from_user=user,
+        date=datetime.datetime.now(),
+        old_chat_member=types.ChatMemberLeft(user=user),
+        new_chat_member=types.ChatMemberMember(user=user),
+    )
+
+    await dp.feed_update(bot=router_app_context.bot, update=types.Update(update_id=42, chat_member=event))
+
+    requests = mock_telegram.get_requests()
+    methods = [r["method"] for r in requests]
+    # restrict_chat_member is called by begin_join_vote
+    assert "restrictChatMember" in methods
+    # The "Welcome ..." captcha message must NOT appear
+    welcome_texts = [r["data"]["text"] for r in requests if r["method"] == "sendMessage"]
+    assert not any("Welcome Joiner" in t for t in welcome_texts), "Captcha welcome should be skipped under selfmod"
+    # A vote message was posted instead
+    assert any("wants to join" in t for t in welcome_texts)
+
+
+@pytest.mark.asyncio
 async def test_stop_exchange_command(mock_telegram, router_app_context):
     dp = router_app_context.dispatcher
     dp.message.middleware(RouterTestMiddleware(router_app_context))

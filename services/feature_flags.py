@@ -29,6 +29,7 @@ class ChatFeatures:
     entry_channel: bool = False
     notify_join: bool = False
     notify_message: bool = False
+    selfmod: bool = False
 
 
 # Mapping from feature name to BotValueTypes enum
@@ -48,6 +49,7 @@ FEATURE_TO_ENUM = {
     "entry_channel": BotValueTypes.EntryChannel,
     "notify_join": BotValueTypes.NotifyJoin,
     "notify_message": BotValueTypes.NotifyMessage,
+    "selfmod": BotValueTypes.Selfmod,
 }
 
 

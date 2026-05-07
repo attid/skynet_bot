@@ -86,3 +86,6 @@ class BotValueTypes(Enum):
     EntryChannel = 44
     Inaccessible = 45
     ChannelLinks = 46
+    Selfmod = 47
+    SelfmodActiveVotes = 48
+    SelfmodWarnings = 49

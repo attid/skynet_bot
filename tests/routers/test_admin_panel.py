@@ -167,18 +167,19 @@ class TestFeatureFlagsKb:
     def test_all_features_for_regular_admin(self, router_app_context):
         """Test skynet-only features are hidden from regular admins."""
         kb = feature_flags_kb(-100123, router_app_context.feature_flags, is_skynet_admin=False)
-        # 14 total - 2 skynet-only (full_data, listen) = 12 features + 1 back = 13 rows
-        assert len(kb.inline_keyboard) == 13
+        # 15 total - 2 skynet-only (full_data, listen) = 13 features + 1 back = 14 rows
+        assert len(kb.inline_keyboard) == 14
         all_text = " ".join(row[0].text for row in kb.inline_keyboard)
         assert "Full Data" not in all_text
         assert "Listen" not in all_text
         assert "Notify Join" in all_text
+        assert "Self-Moderation" in all_text
 
     def test_all_features_for_skynet_admin(self, router_app_context):
         """Test skynet admins see all features including skynet-only."""
         kb = feature_flags_kb(-100123, router_app_context.feature_flags, is_skynet_admin=True)
-        # 14 features + 1 back button = 15 rows
-        assert len(kb.inline_keyboard) == 15
+        # 15 features + 1 back button = 16 rows
+        assert len(kb.inline_keyboard) == 16
         all_text = " ".join(row[0].text for row in kb.inline_keyboard)
         assert "Full Data" in all_text
         assert "Listen" in all_text
@@ -1086,3 +1087,150 @@ async def test_cb_delete_welcome_notifies_owner(mock_telegram, router_app_contex
     owner_msg = next((m for m in send_msgs if int(m["data"]["chat_id"]) == owner_id), None)
     assert owner_msg is not None
     assert "приветствия" in owner_msg["data"]["text"]
+
+
+# ============ Selfmod toggle / stats / reset ============
+
+
+@pytest.mark.asyncio
+async def test_cb_toggle_selfmod(mock_telegram, router_app_context):
+    """Toggle the selfmod feature flag via /admin."""
+    dp = router_app_context.dispatcher
+    dp.callback_query.middleware(RouterTestMiddleware(router_app_context))
+    dp.include_router(admin_panel_router)
+
+    chat_id = -100888
+    _chat_titles[chat_id] = "SelfMod Chat"
+    assert not router_app_context.feature_flags.is_enabled(chat_id, "selfmod")
+
+    cb = AdminCallback(action="toggle", chat_id=chat_id, param="selfmod").pack()
+    update = types.Update(
+        update_id=1,
+        callback_query=types.CallbackQuery(
+            id="cb-sm-1",
+            from_user=types.User(id=12345, is_bot=False, first_name="User"),
+            chat_instance="ci",
+            message=types.Message(
+                message_id=1,
+                date=datetime.datetime.now(),
+                chat=types.Chat(id=12345, type="private"),
+                text="x",
+            ),
+            data=cb,
+        ),
+    )
+    await dp.feed_update(bot=router_app_context.bot, update=update)
+
+    assert router_app_context.feature_flags.is_enabled(chat_id, "selfmod")
+    answer = next((r for r in mock_telegram.get_requests() if r["method"] == "answerCallbackQuery"), None)
+    assert answer is not None
+    assert "enabled" in answer["data"].get("text", "")
+
+
+@pytest.mark.asyncio
+async def test_cb_selfmod_stats_empty(mock_telegram, router_app_context):
+    """Selfmod stats sub-page renders when there are no warnings."""
+    dp = router_app_context.dispatcher
+    dp.callback_query.middleware(RouterTestMiddleware(router_app_context))
+    dp.include_router(admin_panel_router)
+
+    chat_id = -100777
+    _chat_titles[chat_id] = "EmptyChat"
+
+    cb = AdminCallback(action="selfmod_stats", chat_id=chat_id).pack()
+    update = types.Update(
+        update_id=2,
+        callback_query=types.CallbackQuery(
+            id="cb-sm-stats",
+            from_user=types.User(id=999, is_bot=False, first_name="Admin"),
+            chat_instance="ci2",
+            message=types.Message(
+                message_id=2,
+                date=datetime.datetime.now(),
+                chat=types.Chat(id=12345, type="private"),
+                text="x",
+            ),
+            data=cb,
+        ),
+    )
+    await dp.feed_update(bot=router_app_context.bot, update=update)
+
+    edits = [r for r in mock_telegram.get_requests() if r["method"] == "editMessageText"]
+    assert edits
+    assert any("No active warnings" in r["data"]["text"] for r in edits)
+
+
+@pytest.mark.asyncio
+async def test_cb_selfmod_stats_lists_users(mock_telegram, router_app_context):
+    """Selfmod stats sub-page lists users with active warnings."""
+    dp = router_app_context.dispatcher
+    dp.callback_query.middleware(RouterTestMiddleware(router_app_context))
+    dp.include_router(admin_panel_router)
+
+    chat_id = -100766
+    _chat_titles[chat_id] = "WarnChat"
+    router_app_context.selfmod_service.set_warning_count(chat_id, 555, 2)
+
+    cb = AdminCallback(action="selfmod_stats", chat_id=chat_id).pack()
+    update = types.Update(
+        update_id=3,
+        callback_query=types.CallbackQuery(
+            id="cb-sm-warn",
+            from_user=types.User(id=999, is_bot=False, first_name="Admin"),
+            chat_instance="ci3",
+            message=types.Message(
+                message_id=3,
+                date=datetime.datetime.now(),
+                chat=types.Chat(id=12345, type="private"),
+                text="x",
+            ),
+            data=cb,
+        ),
+    )
+    await dp.feed_update(bot=router_app_context.bot, update=update)
+
+    edits = [r for r in mock_telegram.get_requests() if r["method"] == "editMessageText"]
+    text = edits[-1]["data"]["text"]
+    assert "555" in text
+    assert "2 warning" in text
+
+
+@pytest.mark.asyncio
+async def test_cb_selfmod_reset(mock_telegram, router_app_context):
+    """Resetting warnings clears the count and notifies SpamGroup."""
+    dp = router_app_context.dispatcher
+    dp.callback_query.middleware(RouterTestMiddleware(router_app_context))
+    dp.include_router(admin_panel_router)
+
+    from other.constants import MTLChats
+
+    chat_id = -100755
+    target_user_id = 4242
+    _chat_titles[chat_id] = "ResetChat"
+    router_app_context.selfmod_service.set_warning_count(chat_id, target_user_id, 3)
+
+    cb = AdminCallback(action="selfmod_reset", chat_id=chat_id, param=str(target_user_id)).pack()
+    update = types.Update(
+        update_id=4,
+        callback_query=types.CallbackQuery(
+            id="cb-sm-reset",
+            from_user=types.User(id=999, is_bot=False, first_name="Admin", username="admin"),
+            chat_instance="ci4",
+            message=types.Message(
+                message_id=4,
+                date=datetime.datetime.now(),
+                chat=types.Chat(id=12345, type="private"),
+                text="x",
+            ),
+            data=cb,
+        ),
+    )
+    await dp.feed_update(bot=router_app_context.bot, update=update)
+
+    assert await router_app_context.selfmod_service.get_warnings(chat_id, target_user_id) == 0
+    spam_msgs = [
+        r
+        for r in mock_telegram.get_requests()
+        if r["method"] == "sendMessage" and r["data"].get("chat_id") in (str(MTLChats.SpamGroup), MTLChats.SpamGroup)
+    ]
+    assert any("warnings_reset" in m["data"]["text"] for m in spam_msgs)

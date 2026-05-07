@@ -67,6 +67,7 @@ FEATURE_LABELS = {
     "delete_income": "Delete Income",
     "entry_channel": "Entry Channel",
     "notify_join": "Notify Join Request",
+    "selfmod": "Self-Moderation (vote-based)",
 }
 
 # Features that require skynet_admin to toggle (hidden from regular admins)
@@ -391,6 +392,12 @@ def chat_menu_kb(chat_id: int) -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(
                     text="Remove Dead Users", callback_data=AdminCallback(action="dead", chat_id=chat_id).pack()
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="Selfmod Stats",
+                    callback_data=AdminCallback(action="selfmod_stats", chat_id=chat_id).pack(),
                 )
             ],
             [InlineKeyboardButton(text="<< Back", callback_data=AdminCallback(action="list").pack())],
@@ -985,6 +992,114 @@ async def process_welcome_button(
         await notify_owner_about_settings_change(
             bot, chat_id, message.from_user, "Изменена кнопка приветствия", app_context
         )
+
+
+# ============ Selfmod Stats Sub-page ============
+
+
+def _selfmod_stats_kb(chat_id: int, warnings: dict[int, int]) -> InlineKeyboardMarkup:
+    buttons: list[list[InlineKeyboardButton]] = []
+    for user_id, count in sorted(warnings.items(), key=lambda x: -x[1]):
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text=f"Reset {user_id} ({count})",
+                    callback_data=AdminCallback(action="selfmod_reset", chat_id=chat_id, param=str(user_id)).pack(),
+                )
+            ]
+        )
+    buttons.append(
+        [InlineKeyboardButton(text="<< Back", callback_data=AdminCallback(action="menu", chat_id=chat_id).pack())]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+@router.callback_query(AdminCallback.filter(F.action == "selfmod_stats"))
+async def cb_selfmod_stats(
+    query: CallbackQuery, callback_data: AdminCallback, session: Session, bot: Bot, app_context: AppContext
+):
+    """Show selfmod warnings for the chat."""
+    if not app_context or not app_context.selfmod_service:
+        await query.answer("Selfmod service unavailable.", show_alert=True)
+        return
+    if not isinstance(query.message, Message):
+        await query.answer("Message not accessible.", show_alert=True)
+        return
+
+    chat_id = callback_data.chat_id
+    title = await get_chat_title(chat_id, bot, session, app_context) or str(chat_id)
+    selfmod_service = cast(Any, app_context.selfmod_service)
+    warnings = await selfmod_service.list_warnings(chat_id)
+
+    if not warnings:
+        text = f"Selfmod stats: {html.escape(title)}\n\nNo active warnings (last 90 days)."
+    else:
+        lines = [f"Selfmod stats: {html.escape(title)}", "", "Active warnings (last 90 days):"]
+        for uid, count in sorted(warnings.items(), key=lambda x: -x[1]):
+            lines.append(f"• <code>{uid}</code> — {count} warning(s)")
+        text = "\n".join(lines)
+
+    with suppress(TelegramBadRequest):
+        await query.message.edit_text(
+            text, parse_mode=ParseMode.HTML, reply_markup=_selfmod_stats_kb(chat_id, warnings)
+        )
+    await query.answer()
+
+
+@router.callback_query(AdminCallback.filter(F.action == "selfmod_reset"))
+async def cb_selfmod_reset(
+    query: CallbackQuery, callback_data: AdminCallback, session: Session, bot: Bot, app_context: AppContext
+):
+    """Reset warnings for a specific user."""
+    if not app_context or not app_context.selfmod_service:
+        await query.answer("Selfmod service unavailable.", show_alert=True)
+        return
+    if not isinstance(query.message, Message):
+        await query.answer("Message not accessible.", show_alert=True)
+        return
+
+    chat_id = callback_data.chat_id
+    try:
+        target_user_id = int(callback_data.param)
+    except (TypeError, ValueError):
+        await query.answer("Invalid target.", show_alert=True)
+        return
+
+    selfmod_service = cast(Any, app_context.selfmod_service)
+    await selfmod_service.reset_warnings(chat_id, target_user_id)
+
+    title = await get_chat_title(chat_id, bot, session, app_context) or str(chat_id)
+    warnings = await selfmod_service.list_warnings(chat_id)
+
+    if not warnings:
+        text = f"Selfmod stats: {html.escape(title)}\n\nNo active warnings (last 90 days)."
+    else:
+        lines = [f"Selfmod stats: {html.escape(title)}", "", "Active warnings (last 90 days):"]
+        for uid, count in sorted(warnings.items(), key=lambda x: -x[1]):
+            lines.append(f"• <code>{uid}</code> — {count} warning(s)")
+        text = "\n".join(lines)
+
+    with suppress(TelegramBadRequest):
+        await query.message.edit_text(
+            text, parse_mode=ParseMode.HTML, reply_markup=_selfmod_stats_kb(chat_id, warnings)
+        )
+    await query.answer(f"Warnings reset for {target_user_id}")
+
+    # Log to spam-chat
+    with suppress(TelegramBadRequest, TelegramForbiddenError):
+        from other.constants import MTLChats as _MTLChats
+
+        actor = f"@{query.from_user.username}" if query.from_user.username else str(query.from_user.id)
+        await bot.send_message(
+            _MTLChats.SpamGroup,
+            f"<b>selfmod / warnings_reset</b>\nchat: {html.escape(title)} ({chat_id})\n"
+            f"target: <code>{target_user_id}</code>\nactor: {html.escape(actor)}",
+            parse_mode=ParseMode.HTML,
+        )
+
+    await notify_owner_about_settings_change(
+        bot, chat_id, query.from_user, f"Сброшены selfmod-предупреждения для {target_user_id}", app_context
+    )
 
 
 # ============ Register Handlers ============

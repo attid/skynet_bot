@@ -25,6 +25,7 @@ from services.command_registry_service import CommandRegistryService
 from services.database_service import DatabaseService
 from services.repositories.chats_repo_adapter import ChatsRepositoryAdapter
 from services.channel_link_service import ChannelLinkService
+from services.selfmod_service import SelfmodService
 from services.stellar_notification_service import StellarNotificationService
 
 
@@ -55,6 +56,7 @@ class AppContext:
         self.command_registry = None
         self.db_service = None
         self.channel_link_service = None
+        self.selfmod_service = None
         self.stellar_notification_service = None
         self.message_thread_cache_service = None
 
@@ -96,6 +98,7 @@ class AppContext:
         ctx.db_service = DatabaseService()
         ctx.spam_status_service = SpamStatusService(ChatsRepositoryAdapter(ctx.db_service.session_pool))
         ctx.channel_link_service = ChannelLinkService()
+        ctx.selfmod_service = SelfmodService(ctx.db_service)
         # stellar_notification_service is initialized later in start.py
         # when session_pool is available
 

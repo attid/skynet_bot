@@ -46,3 +46,19 @@
 12. `AppContext`
 - Dependency container used across routers and middlewares.
 - Main place to access services in runtime.
+
+13. `Selfmod` (self-moderation)
+- Per-chat feature flag enabling vote-based moderation without active admins.
+- Replaces captcha when enabled; CAS/LOLS checks remain.
+
+14. `Join vote`
+- Selfmod vote on a new chat member: Accept/Reject buttons posted on join.
+- Approve threshold: `yes ≥ max(3, 3 × no)`. Reject is symmetric. No timeout.
+
+15. `Mute vote`
+- Selfmod vote triggered by a 👾 reaction on any chat message.
+- Approve applies an escalating mute (1 day → 7 days → kick vote at level 3+).
+
+16. `Warning window`
+- Rolling 90-day window over a user's mute approvals in a chat.
+- Determines the next mute duration; old timestamps fall off automatically.
