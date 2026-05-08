@@ -108,6 +108,23 @@ emoji_pairs = [
     ["🟥", "🟧", "🟨", "🟩", "🟦", "🟪", "⬛️", "⬜️", "🟫"],  # Квадраты
 ]
 
+
+def strip_emoji_captcha_lines(text: str) -> str:
+    captcha_emoji = tuple(emoji for row in emoji_pairs for emoji in row)
+    captcha_emoji_without_vs = tuple(emoji.replace("\ufe0f", "") for emoji in captcha_emoji)
+
+    lines = []
+    for line in text.splitlines():
+        normalized_line = line.replace("\ufe0f", "")
+        if any(emoji in line for emoji in captcha_emoji) or any(
+            emoji in normalized_line for emoji in captcha_emoji_without_vs
+        ):
+            continue
+        lines.append(line)
+
+    return "\n".join(lines).strip()
+
+
 dal = (
     "🔴🟤",  # 1 9  # 0 8
     "🟠🟢",  # 2 4   # 1 3
@@ -596,7 +613,36 @@ async def cq_emoji_captcha(query: CallbackQuery, callback_data: EmojiCaptchaCall
             )
         else:
             await query.answer("Wrong answer", show_alert=True)
-            await query.message.delete_reply_markup()
+            logger.info(
+                "moderation_artifact action=captcha_wrong_answer chat_id={} user_id={} source=captcha_v2",
+                query.message.chat.id,
+                query.from_user.id,
+            )
+            original_text = query.message.html_text or query.message.text or ""
+            clean_text = strip_emoji_captcha_lines(original_text)
+            wrong_answer_notice = (
+                "Ответ неверный. Если вы считаете, что это ошибка, напишите администрации: @mtl_helper_bot\n\n"
+                "Wrong answer. If you believe this is a mistake, contact admins: @mtl_helper_bot"
+            )
+            wrong_answer_text = (
+                f"{clean_text}\n\n{wrong_answer_notice}" if clean_text else wrong_answer_notice
+            )
+            try:
+                await query.message.edit_text(
+                    wrong_answer_text,
+                    parse_mode=ParseMode.HTML,
+                    disable_web_page_preview=True,
+                    reply_markup=None,
+                )
+            except TelegramBadRequest as e:
+                logger.warning(
+                    "captcha wrong-answer edit failed chat={} user={} err={}",
+                    query.message.chat.id,
+                    query.from_user.id,
+                    e,
+                )
+                with suppress(TelegramBadRequest):
+                    await query.message.delete_reply_markup()
     else:
         await query.answer("For other user", show_alert=True)
 

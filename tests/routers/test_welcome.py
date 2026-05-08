@@ -3,7 +3,7 @@ import json
 import pytest
 from aiogram import types
 
-from routers.welcome import router as welcome_router, CaptchaCallbackData, JoinCallbackData
+from routers.welcome import router as welcome_router, CaptchaCallbackData, EmojiCaptchaCallbackData, JoinCallbackData
 from tests.conftest import RouterTestMiddleware
 from other.constants import MTLChats, BotValueTypes
 
@@ -609,3 +609,59 @@ async def test_cq_captcha_restores_permissions(mock_telegram, router_app_context
     until_date = restrict_req["data"].get("until_date")
     assert until_date is not None
     assert int(until_date) > datetime.datetime.now().timestamp()
+
+
+@pytest.mark.asyncio
+async def test_cq_emoji_captcha_wrong_answer_edits_message_with_contact(mock_telegram, router_app_context):
+    dp = router_app_context.dispatcher
+    dp.callback_query.middleware(RouterTestMiddleware(router_app_context))
+    dp.include_router(welcome_router)
+
+    chat_id = -1012
+    user_id = 123
+
+    cb_data = EmojiCaptchaCallbackData(user_id=user_id, square="🟥", num=1001).pack()
+
+    update = types.Update(
+        update_id=212,
+        callback_query=types.CallbackQuery(
+            id="cb_emoji_captcha_wrong",
+            chat_instance="ci_emoji_captcha_wrong",
+            from_user=types.User(id=user_id, is_bot=False, first_name="User", username="user"),
+            message=types.Message(
+                message_id=12,
+                date=datetime.datetime.now(),
+                chat=types.Chat(id=chat_id, type="supergroup", title="Test Chat"),
+                text=(
+                    "Welcome. Read the rules.\n\n"
+                    "Подтвердите, что вы не бот — нажмите на кнопку 🔴\n"
+                    "Confirm that you are not a bot — click on the button 🔴\n"
+                    "Potvrdite da niste bot — kliknite na gumb 🔴"
+                ),
+            ),
+            data=cb_data,
+        ),
+    )
+
+    await dp.feed_update(bot=router_app_context.bot, update=update)
+
+    requests = mock_telegram.get_requests()
+
+    answer_req = next((r for r in requests if r["method"] == "answerCallbackQuery"), None)
+    assert answer_req is not None
+    assert answer_req["data"]["text"] == "Wrong answer"
+    assert answer_req["data"]["show_alert"] in (True, "true", "True", 1, "1")
+
+    edit_req = next((r for r in requests if r["method"] == "editMessageText"), None)
+    assert edit_req is not None
+    assert "Welcome. Read the rules." in edit_req["data"]["text"]
+    assert "Подтвердите, что вы не бот" not in edit_req["data"]["text"]
+    assert "Confirm that you are not a bot" not in edit_req["data"]["text"]
+    assert "Potvrdite da niste bot" not in edit_req["data"]["text"]
+    assert "🔴" not in edit_req["data"]["text"]
+    assert "Ответ неверный" in edit_req["data"]["text"]
+    assert "Wrong answer" in edit_req["data"]["text"]
+    assert "@mtl_helper_bot" in edit_req["data"]["text"]
+    assert "reply_markup" not in edit_req["data"] or edit_req["data"]["reply_markup"] in (None, "null")
+
+    assert not any(r["method"] == "restrictChatMember" for r in requests)
