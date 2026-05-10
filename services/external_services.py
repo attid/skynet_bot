@@ -503,15 +503,18 @@ class TalkService:
         self.bot = bot
 
     async def answer_notify_message(self, message, app_context):
-        if (
-            message.reply_to_message.from_user.id == self.bot.id
-            and message.reply_to_message.reply_markup
-            and message.reply_to_message.external_reply
-            and app_context.notification_service.get_message_notify_config(
-                message.reply_to_message.external_reply.chat.id
-            )
-        ):
-            info = message.reply_to_message.reply_markup.inline_keyboard[0][0].callback_data.split(":")
+        reply = message.reply_to_message
+        if not reply or not reply.from_user or reply.from_user.id != self.bot.id:
+            return
+        if not reply.reply_markup or not reply.external_reply:
+            return
+
+        external_chat = getattr(reply.external_reply, "chat", None)
+        if not external_chat:
+            return
+
+        if app_context.notification_service.get_message_notify_config(external_chat.id):
+            info = reply.reply_markup.inline_keyboard[0][0].callback_data.split(":")
             if len(info) > 2 and info[0] == "Reply":
                 msg = await message.copy_to(chat_id=int(info[2]), reply_to_message_id=int(info[1]))
                 if message.chat.username:

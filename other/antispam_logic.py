@@ -28,6 +28,28 @@ class FirstMessageCallbackData(CallbackData, prefix="first"):
     spam: bool
 
 
+def _get_sender_id(message) -> int | None:
+    from_user = getattr(message, "from_user", None)
+    sender_chat = getattr(message, "sender_chat", None)
+    if from_user and from_user.id == MTLChats.Channel_Bot and sender_chat:
+        return sender_chat.id
+    if from_user:
+        return from_user.id
+    if sender_chat:
+        return sender_chat.id
+    return None
+
+
+def _get_sender_username(message) -> str | None:
+    from_user = getattr(message, "from_user", None)
+    sender_chat = getattr(message, "sender_chat", None)
+    if from_user:
+        return from_user.username
+    if sender_chat:
+        return sender_chat.username
+    return None
+
+
 async def save_url(chat_id, msg_id, msg):
     url = extract_url(msg)
     await app_context.db_service.save_bot_value(chat_id, BotValueTypes.PinnedUrl, url)
@@ -35,7 +57,10 @@ async def save_url(chat_id, msg_id, msg):
 
 
 async def delete_and_log_spam(message, session, rules_name):
-    user_id = message.sender_chat.id if message.sender_chat else message.from_user.id
+    user_id = _get_sender_id(message)
+    if user_id is None:
+        logger.warning("Skip spam delete/log: message has no from_user or sender_chat")
+        return
     # user_username = message.sender_chat.username if message.sender_chat else message.from_user.username
     with suppress(TelegramBadRequest):
         await message.chat.restrict(
@@ -98,11 +123,14 @@ async def delete_and_log_spam(message, session, rules_name):
         ),
     )
     await message.delete()
-    add_bot_users(session, user_id, message.from_user.username, 0)
+    add_bot_users(session, user_id, _get_sender_username(message), 0)
 
 
 async def set_vote(message):
-    user_id = message.sender_chat.id if message.sender_chat else message.from_user.id
+    user_id = _get_sender_id(message)
+    if user_id is None:
+        logger.warning("Skip first-message vote: message has no from_user or sender_chat")
+        return
     if app_context.voting_service.is_first_vote_enabled(message.chat.id):
         kb_reply = InlineKeyboardMarkup(
             inline_keyboard=[
@@ -133,10 +161,14 @@ async def check_spam(message, session=None):
     # In last_handler.py: async def check_spam(message, session):
     # So we need session.
 
-    if message.from_user.id == MTLChats.Telegram_Repost_Bot:
+    from_user = getattr(message, "from_user", None)
+    if from_user and from_user.id == MTLChats.Telegram_Repost_Bot:
         return False
 
-    user_id = message.sender_chat.id if message.from_user.id == MTLChats.Channel_Bot else message.from_user.id
+    user_id = _get_sender_id(message)
+    if user_id is None:
+        logger.warning("Skip spam check: message has no from_user or sender_chat")
+        return False
 
     if app_context.check_user(user_id) == SpamStatus.GOOD:
         return False
@@ -192,6 +224,6 @@ async def check_spam(message, session=None):
         await delete_and_log_spam(message, session, rules_name)
         return True
     else:
-        add_bot_users(session, user_id, message.from_user.username, 1)
+        add_bot_users(session, user_id, _get_sender_username(message), 1)
         await set_vote(message)
         return False
