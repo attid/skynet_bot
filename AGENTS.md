@@ -50,6 +50,7 @@
 
 ## Commit & Pull Request Guidelines
 - Use Conventional Commits: `feat(scope):`, `fix(scope):`, `refactor(scope):` (emojis optional, keep scope meaningful).
+- Before every `git push`, run `uv run ruff format --check .` in addition to the relevant lint/type/test checks; do not push while the format check fails.
 - PRs: concise description, motivation, screenshots/log snippets when UI/log behavior changes; reference issues; note config or migration impacts.
 - Keep diffs focused; include follow‑ups in separate PRs.
 

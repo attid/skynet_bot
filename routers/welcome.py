@@ -624,9 +624,7 @@ async def cq_emoji_captcha(query: CallbackQuery, callback_data: EmojiCaptchaCall
                 "Ответ неверный. Если вы считаете, что это ошибка, напишите администрации: @mtl_helper_bot\n\n"
                 "Wrong answer. If you believe this is a mistake, contact admins: @mtl_helper_bot"
             )
-            wrong_answer_text = (
-                f"{clean_text}\n\n{wrong_answer_notice}" if clean_text else wrong_answer_notice
-            )
+            wrong_answer_text = f"{clean_text}\n\n{wrong_answer_notice}" if clean_text else wrong_answer_notice
             try:
                 await query.message.edit_text(
                     wrong_answer_text,
