@@ -28,6 +28,7 @@ from services.skyuser import SkyUser
 from other.pyro_tools import MessageInfo
 from other.miniapps_tools import miniapps
 from other.stellar import send_by_list
+from services.eurmtl_bot_login_service import confirm_eurmtl_bot_login
 
 router = Router()
 
@@ -534,6 +535,23 @@ async def cmd_edited_channel_post(message: Message, bot: Bot, session: Session, 
             del channel_sync[post_key]
         app_context.bot_state_service.set_sync_state(sync_key, channel_sync)
         ConfigRepository(session).save_bot_value(message.chat.id, BotValueTypes.Sync, json.dumps(channel_sync))
+
+
+@router.message(CommandStart(deep_link=True, magic=F.args.regexp(r"^eurmtl_.+")), F.chat.type == "private")
+async def cmd_eurmtl_bot_login(message: Message):
+    start_arg = (message.text or "").split(maxsplit=1)[1]
+    token = start_arg.removeprefix("eurmtl_")
+    if not token or not message.from_user:
+        await message.answer("Ссылка устарела, начните вход заново на сайте.")
+        return
+
+    auth_date = int(message.date.timestamp())
+    result = await confirm_eurmtl_bot_login(token=token, user=message.from_user, auth_date=auth_date)
+    if result.success:
+        await message.answer("Вход подтвержден, вернитесь на сайт.")
+        return
+
+    await message.answer("Ссылка устарела, начните вход заново на сайте.")
 
 
 @router.message(Command(commands=["eurmtl"]))

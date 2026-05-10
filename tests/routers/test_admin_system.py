@@ -3,10 +3,11 @@ import os
 import hashlib
 from unittest.mock import AsyncMock
 from pathlib import Path
+from aiohttp import web
 from aiogram import types
 from aiogram.exceptions import TelegramBadRequest
 from routers.admin_system import router as admin_router
-from tests.conftest import RouterTestMiddleware
+from tests.conftest import RouterTestMiddleware, get_free_port
 from other.constants import MTLChats
 import datetime
 
@@ -24,6 +25,44 @@ async def cleanup_router():
         # Check if size is small (dummy)
         if os.path.exists("skynet.log") and os.path.getsize("skynet.log") < 100:
             os.remove("skynet.log")
+
+
+@pytest.fixture
+async def mock_eurmtl_bot_confirm(monkeypatch):
+    class EurmtlMockState:
+        def __init__(self):
+            self.requests = []
+            self.status = 200
+            self.response = {"ok": True}
+
+    state = EurmtlMockState()
+    port = get_free_port()
+    routes = web.RouteTableDef()
+
+    @routes.post("/login/bot/confirm")
+    async def confirm(request):
+        body = await request.json()
+        state.requests.append(
+            {
+                "method": "POST",
+                "path": request.path,
+                "headers": dict(request.headers),
+                "json": body,
+            }
+        )
+        return web.json_response(state.response, status=state.status)
+
+    app = web.Application()
+    app.add_routes(routes)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "localhost", port)
+    await site.start()
+    monkeypatch.setenv("EURMTL_BOT_CONFIRM_URL", f"http://localhost:{port}/login/bot/confirm")
+
+    yield state
+
+    await runner.cleanup()
 
 
 @pytest.mark.asyncio
@@ -1798,6 +1837,111 @@ async def test_eurmtl_via_deeplink(mock_telegram, router_app_context):
     msg_req = next((r for r in requests if r["method"] == "sendMessage"), None)
     assert msg_req is not None
     assert "log in" in msg_req["data"]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_eurmtl_bot_login_deeplink_confirms_token(mock_telegram, router_app_context, mock_eurmtl_bot_confirm):
+    """Test /start eurmtl_<token> confirms browser login through eurmtl.me."""
+    dp = router_app_context.dispatcher
+    dp.message.middleware(RouterTestMiddleware(router_app_context))
+    dp.include_router(admin_router)
+
+    update = types.Update(
+        update_id=71,
+        message=types.Message(
+            message_id=71,
+            date=datetime.datetime.fromtimestamp(1760000000),
+            chat=types.Chat(id=123, type="private"),
+            from_user=types.User(
+                id=123456,
+                is_bot=False,
+                first_name="Name",
+                last_name="Surname",
+                username="user",
+            ),
+            text="/start eurmtl_login-token-123",
+        ),
+    )
+
+    await dp.feed_update(bot=router_app_context.bot, update=update)
+
+    assert len(mock_eurmtl_bot_confirm.requests) == 1
+    confirm_req = mock_eurmtl_bot_confirm.requests[0]
+    assert confirm_req["headers"]["Authorization"] == "Bearer test-eurmtl-key"
+    assert confirm_req["json"] == {
+        "token": "login-token-123",
+        "id": 123456,
+        "first_name": "Name",
+        "last_name": "Surname",
+        "username": "user",
+        "photo_url": None,
+        "auth_date": 1760000000,
+    }
+
+    requests = mock_telegram.get_requests()
+    msg_req = next((r for r in requests if r["method"] == "sendMessage"), None)
+    assert msg_req is not None
+    assert "Вход подтвержден" in msg_req["data"]["text"]
+
+
+@pytest.mark.asyncio
+async def test_eurmtl_bot_login_deeplink_reports_expired_link(
+    mock_telegram, router_app_context, mock_eurmtl_bot_confirm
+):
+    """Test bot tells user to restart login when eurmtl.me rejects token."""
+    mock_eurmtl_bot_confirm.status = 410
+    mock_eurmtl_bot_confirm.response = {"error": "expired"}
+
+    dp = router_app_context.dispatcher
+    dp.message.middleware(RouterTestMiddleware(router_app_context))
+    dp.include_router(admin_router)
+
+    update = types.Update(
+        update_id=72,
+        message=types.Message(
+            message_id=72,
+            date=datetime.datetime.now(),
+            chat=types.Chat(id=123, type="private"),
+            from_user=types.User(id=123456, is_bot=False, first_name="Name", username="user"),
+            text="/start eurmtl_expired-token",
+        ),
+    )
+
+    await dp.feed_update(bot=router_app_context.bot, update=update)
+
+    assert len(mock_eurmtl_bot_confirm.requests) == 1
+    requests = mock_telegram.get_requests()
+    msg_req = next((r for r in requests if r["method"] == "sendMessage"), None)
+    assert msg_req is not None
+    assert "Ссылка устарела" in msg_req["data"]["text"]
+
+
+@pytest.mark.asyncio
+async def test_eurmtl_bot_login_deeplink_without_user_does_not_confirm(
+    mock_telegram, router_app_context, mock_eurmtl_bot_confirm
+):
+    """Test bot does not call eurmtl.me when Telegram user data is missing."""
+    dp = router_app_context.dispatcher
+    dp.message.middleware(RouterTestMiddleware(router_app_context))
+    dp.include_router(admin_router)
+
+    update = types.Update(
+        update_id=73,
+        message=types.Message(
+            message_id=73,
+            date=datetime.datetime.now(),
+            chat=types.Chat(id=123, type="private"),
+            text="/start eurmtl_missing-user-token",
+        ),
+    )
+
+    await dp.feed_update(bot=router_app_context.bot, update=update)
+
+    assert mock_eurmtl_bot_confirm.requests == []
+    requests = mock_telegram.get_requests()
+    msg_req = next((r for r in requests if r["method"] == "sendMessage"), None)
+    assert msg_req is not None
+    assert "Ссылка устарела" in msg_req["data"]["text"]
 
 
 @pytest.mark.asyncio
