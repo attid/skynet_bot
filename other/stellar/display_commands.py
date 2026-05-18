@@ -120,7 +120,7 @@ async def get_cash_balance(chat_id: int) -> str:
             assets = await get_balances(treasure["account_id"])
             eurdebt = int(assets.get("EURDEBT", 0))
             eurmtl_amount = int(assets.get("EURMTL", 0))
-            diff = eurdebt - eurmtl_amount
+            diff = max(eurdebt - eurmtl_amount, 0)
             name = treasure["name"] if chat_id == MTLChats.GuarantorGroup else treasure["name"][0]
             s_cash = f"{diff} ".rjust(8)
             s_eurmtl = f"{eurmtl_amount} ".rjust(8)

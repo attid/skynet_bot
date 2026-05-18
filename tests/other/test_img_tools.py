@@ -1,4 +1,4 @@
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 
 from other import img_tools
 
@@ -14,7 +14,7 @@ def test_create_image_with_text_uses_auto_height_when_height_is_none(tmp_path, m
     output_path = tmp_path / "data" / "output_image.png"
     image = Image.open(output_path)
 
-    font = ImageFont.truetype("DejaVuSansMono.ttf", 30)
+    font = img_tools._load_font("DejaVuSansMono.ttf", 30)
     draw = ImageDraw.Draw(Image.new("RGB", (1, 1)))
     expected_text_height = -4
     for line in text.splitlines():
