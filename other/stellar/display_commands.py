@@ -1,7 +1,9 @@
 # other/stellar/display_commands.py
 """Display and show commands for Stellar data presentation."""
 
-from sqlalchemy.orm import Session
+from typing import Any, cast
+
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from other.config_reader import config
 from other.constants import MTLChats
@@ -59,7 +61,7 @@ async def get_bim_list() -> list:
     return result
 
 
-async def cmd_show_bim(session: Session) -> str:
+async def cmd_show_bim(session: AsyncSession) -> str:
     """
     Show BIM participant statistics.
 
@@ -73,7 +75,7 @@ async def cmd_show_bim(session: Session) -> str:
     bod_list = await get_bim_list()
     good = list(filter(lambda x: x[1], bod_list))
 
-    total_sum = FinanceRepository(session).get_total_user_div()
+    total_sum = await FinanceRepository(session).async_get_total_user_div()
 
     result += f"Всего {len(bod_list)} участников"
     result += f"\n{len(good)} участников c доступом к EURMTL"
@@ -117,7 +119,7 @@ async def get_cash_balance(chat_id: int) -> str:
         if len(treasure["account_id"]) == 56:
             if not treasure["enabled"]:
                 continue
-            assets = await get_balances(treasure["account_id"])
+            assets = cast(dict[str, Any], await get_balances(treasure["account_id"]))
             eurdebt = int(assets.get("EURDEBT", 0))
             eurmtl_amount = int(assets.get("EURMTL", 0))
             diff = eurdebt - eurmtl_amount
@@ -167,6 +169,8 @@ def get_donate_list(account: dict) -> list:
     if "data" in account:
         data = account.get("data")
         account_id = account.get("account_id")
+        if not isinstance(data, dict) or not isinstance(account_id, str):
+            return donate_list
         for data_name in list(data):
             data_value = data[data_name]
             if data_name[:10] == "mtl_donate":
@@ -179,7 +183,7 @@ def get_donate_list(account: dict) -> list:
     return donate_list
 
 
-async def cmd_show_data(account_id: str, filter_by: str = None, only_data: bool = False) -> list:
+async def cmd_show_data(account_id: str, filter_by: str | None = None, only_data: bool = False) -> list:
     """
     Show account data entries.
 
@@ -196,7 +200,7 @@ async def cmd_show_data(account_id: str, filter_by: str = None, only_data: bool 
         pass
     elif account_id == "donate":
         # get all donations
-        result_data = await cmd_show_donates()
+        result_data = cast(list, await cmd_show_donates())
     else:
         response = await http_session_manager.get_web_request(
             "GET", url=f"{config.horizon_url}/accounts/{account_id}", return_type="json"

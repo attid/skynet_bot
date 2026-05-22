@@ -2,11 +2,12 @@
 """General utility functions for Stellar operations."""
 
 import re
+from typing import Any, cast
 
 from aiogram import Bot
 from aiogram.types import Message
 from loguru import logger
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.repositories import ChatsRepository
 from other.web_tools import http_session_manager
@@ -55,7 +56,9 @@ async def cmd_alarm_url(url: str) -> str:
     return cleanhtml(rq)
 
 
-async def send_by_list(bot: Bot, all_users: list, message: Message, session: Session = None, url: str = None):
+async def send_by_list(
+    bot: Bot, all_users: list, message: Message, session: AsyncSession | None = None, url: str | None = None
+):
     """
     Send messages to multiple users.
 
@@ -69,13 +72,20 @@ async def send_by_list(bot: Bot, all_users: list, message: Message, session: Ses
     good_users = []
     bad_users = []
     if url is None:
-        url = message.reply_to_message.get_url()
-    msg = f"@{message.from_user.username} call you here {url}"
+        reply_to_message = message.reply_to_message
+        url = reply_to_message.get_url() if reply_to_message else ""
+    from_user = cast(Any, message.from_user)
+    msg = f"@{from_user.username} call you here {url}"
 
     for user in all_users:
         if len(user) > 2 and user[0] == "@":
             try:
-                chat_id = ChatsRepository(session).get_user_id(user)
+                if session is None:
+                    from services.app_context import app_context
+
+                    chat_id = await app_context.db_service.get_user_id(user)
+                else:
+                    chat_id = await ChatsRepository(session).async_get_user_id(user)
                 await bot.send_message(chat_id=chat_id, text=msg)
                 good_users.append(user)
             except Exception as ex:

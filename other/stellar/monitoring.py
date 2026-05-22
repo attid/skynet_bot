@@ -6,10 +6,10 @@ detecting asset-specific transactions in the MTL ecosystem.
 """
 
 from datetime import datetime
-from typing import List
+from typing import Any, List, cast
 
 from loguru import logger
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from stellar_sdk import Server
 
 from .sdk_utils import get_server_async, get_horizon_url
@@ -21,7 +21,7 @@ from shared.infrastructure.database.models import TOperations
 
 
 async def cmd_check_new_transaction(
-    ignore_operation: List, account_id=MTLAddresses.public_issuer, cash=None, chat_id=None
+    ignore_operation: List, account_id: str = MTLAddresses.public_issuer, cash=None, chat_id: str | None = None
 ):
     """
     Check for new transactions on a Stellar account and decode them.
@@ -40,6 +40,7 @@ async def cmd_check_new_transaction(
     from services.app_context import app_context
 
     result = []
+    chat_key = str(chat_id or "")
 
     try:
         # Check cache first
@@ -54,13 +55,13 @@ async def cmd_check_new_transaction(
                 cash[account_id] = tr
 
         # Get last processed transaction ID from database
-        last_id = await app_context.db_service.load_kv_value(account_id + chat_id)
+        last_id = await app_context.db_service.load_kv_value(account_id + chat_key)
 
         # If no last_id, save current one and exit
         if last_id is None:
             if tr["_embedded"]["records"]:
                 last_id = tr["_embedded"]["records"][0]["paging_token"]
-                await app_context.db_service.save_kv_value(account_id + chat_id, last_id)
+                await app_context.db_service.save_kv_value(account_id + chat_key, last_id)
             return result
 
         new_transactions = []
@@ -91,7 +92,7 @@ async def cmd_check_new_transaction(
                 logger.opt(exception=True).error(f"Error processing transaction {transaction['paging_token']}: {ex}")
                 continue
 
-        await app_context.db_service.save_kv_value(account_id + chat_id, last_id)
+        await app_context.db_service.save_kv_value(account_id + chat_key, last_id)
 
     except Exception as ex:
         logger.opt(exception=True).error(f"Error in cmd_check_new_transaction for account {account_id}: {ex}")
@@ -100,12 +101,12 @@ async def cmd_check_new_transaction(
 
 
 async def cmd_check_new_asset_transaction(
-    session: Session,
+    session: AsyncSession,
     asset: str,
     filter_sum: int = -1,
     filter_operation=None,
     filter_asset=None,
-    chat_id=None,
+    chat_id: str | None = None,
     grist_manager=None,
 ):
     """
@@ -130,23 +131,24 @@ async def cmd_check_new_asset_transaction(
             filter_operation = []
         result = []
         asset_name = asset.split("-")[0]
+        chat_key = str(chat_id or "")
 
         # Get last processed effect ID from database
-        last_id = await app_context.db_service.load_kv_value(asset + chat_id)
+        last_id = await app_context.db_service.load_kv_value(asset + chat_key)
 
         # If no last_id, save current one and exit
         if last_id is None:
             # Get data to determine current max_id
-            data = FinanceRepository(session).get_new_effects_for_token(asset_name, "-1", filter_sum)
+            data = await FinanceRepository(session).async_get_new_effects_for_token(asset_name, "-1", filter_sum)
             if data:
                 # Save last effect ID as initial last_id
-                await app_context.db_service.save_kv_value(asset + chat_id, data[-1].id)
+                await app_context.db_service.save_kv_value(asset + chat_key, data[-1].id)
             return result
 
         max_id = last_id
 
         # Get new effects for token
-        data = FinanceRepository(session).get_new_effects_for_token(asset_name, last_id, filter_sum)
+        data = await FinanceRepository(session).async_get_new_effects_for_token(asset_name, last_id, filter_sum)
         for row in data:
             try:
                 effect = await _decode_db_effect(row, grist_manager=grist_manager)
@@ -159,7 +161,7 @@ async def cmd_check_new_asset_transaction(
 
         # Save new max_id if it's greater than last_id
         if max_id > last_id:
-            await app_context.db_service.save_kv_value(asset + chat_id, max_id)
+            await app_context.db_service.save_kv_value(asset + chat_key, max_id)
 
         return result
 
@@ -180,19 +182,18 @@ async def _decode_db_effect(row: TOperations, grist_manager=None):
         Formatted string describing the operation
     """
     try:
+        row_any = cast(Any, row)
         result = (
-            f'<a href="https://viewer.eurmtl.me/operation/{row.id.split("-")[0]}">'
-            f"Операция</a> с аккаунта {await address_id_to_username(row.for_account, full_data=True, grist_manager=grist_manager)} \n"
+            f'<a href="https://viewer.eurmtl.me/operation/{row_any.id.split("-")[0]}">'
+            f"Операция</a> с аккаунта {await address_id_to_username(row_any.for_account, full_data=True, grist_manager=grist_manager)} \n"
         )
-        if row.operation == "trade":
-            result += (
-                f"  {row.operation}  {float2str(row.amount1)} {row.code1} for {float2str(row.amount2)} {row.code2} \n"
-            )
+        if row_any.operation == "trade":
+            result += f"  {row_any.operation}  {float2str(row_any.amount1)} {row_any.code1} for {float2str(row_any.amount2)} {row_any.code2} \n"
         else:
-            result += f"  {row.operation} for {float2str(row.amount1)} {row.code1} \n"
+            result += f"  {row_any.operation} for {float2str(row_any.amount1)} {row_any.code1} \n"
         return result
     except Exception as ex:
-        logger.opt(exception=True).error(f"Error in _decode_db_effect for operation {row.id}: {ex}")
+        logger.opt(exception=True).error(f"Error in _decode_db_effect for operation {cast(Any, row).id}: {ex}")
         return None
 
 

@@ -17,6 +17,17 @@ class FinanceRepository(BaseRepository):
         result = self.session.execute(stmt).scalar()
         return result if result is not None else 0.0
 
+    async def async_get_total_user_div(self) -> float:
+        stmt = (
+            select(func.sum(TPayments.user_div))
+            .select_from(TPayments)
+            .join(TDivList, and_(TDivList.id == TPayments.id_div_list))
+            .where(TDivList.pay_type == 1)
+        )
+        result = await self.session.execute(stmt)
+        value = result.scalar()
+        return value if value is not None else 0.0
+
     def get_div_list(self, list_id: int) -> Optional[TDivList]:
         return self.session.execute(select(TDivList).where(TDivList.id == list_id)).scalar_one_or_none()
 
@@ -115,6 +126,26 @@ class FinanceRepository(BaseRepository):
             stmt = base_query.where(TOperations.id > last_id).order_by(TOperations.id).limit(10)
 
         result = self.session.execute(stmt)
+        return cast(List[TOperations], result.scalars().all())
+
+    async def async_get_new_effects_for_token(self, token: str, last_id: str, amount: float) -> List[TOperations]:
+        assert len(token) <= 32, "Length of 'token' should not exceed 32 characters"
+
+        base_query = (
+            select(TOperations)
+            .where(TOperations.operation != "trustline_created")
+            .where(
+                (TOperations.code1 == token) & (sql_cast(TOperations.amount1, Float) > amount)
+                | (TOperations.code2 == token) & (sql_cast(TOperations.amount2, Float) > amount)
+            )
+        )
+
+        if last_id == "-1":
+            stmt = base_query.order_by(desc(TOperations.id)).limit(1)
+        else:
+            stmt = base_query.where(TOperations.id > last_id).order_by(TOperations.id).limit(10)
+
+        result = await self.session.execute(stmt)
         return cast(List[TOperations], result.scalars().all())
 
     def get_operations(self, last_id: Optional[str] = None, limit: int = 3000) -> List[TOperations]:

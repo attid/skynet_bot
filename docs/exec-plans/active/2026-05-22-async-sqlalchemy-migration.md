@@ -156,6 +156,8 @@
       - Частично сделано:
         - `other/stellar/dividend_commands.py`: USDM/runtime dividend list creation, dividend persistence, XDR generation and transaction send paths use `AsyncSession` commits and async `FinanceRepository` reads.
         - `db/repositories/finance.py`: added async read helpers for dividend lists, payments, transaction counts and asset operation history.
+        - `db/repositories/finance.py`: added async read helpers for total BIM dividends and token effects.
+        - `other/stellar/monitoring.py`, `other/stellar/display_commands.py`, `other/stellar/utils.py`: Stellar monitoring/display/push lookup paths use async repository or DB service lookups.
     - Решение по scripts зафиксировать в плане выполнения: full async предпочтительнее, runtime-only быстрее и безопаснее.
 
 12. [ ] Шаг 12 — обновить тестовые fakes.

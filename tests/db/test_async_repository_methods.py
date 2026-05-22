@@ -2,6 +2,7 @@ import pytest
 
 from db.repositories.chats import ChatsRepository
 from db.repositories.config import ConfigRepository
+from db.repositories.finance import FinanceRepository
 from db.repositories.messages import MessageRepository
 from other.pyro_tools import GroupMember
 
@@ -17,6 +18,9 @@ class FakeScalarResult:
         return self
 
     def all(self):
+        return self._value
+
+    def scalar(self):
         return self._value
 
 
@@ -143,3 +147,24 @@ async def test_message_repository_async_send_admin_message_adds_message():
     await MessageRepository(session).async_send_admin_message("problem")
 
     assert len(session.added) == 1
+
+
+@pytest.mark.asyncio
+async def test_finance_repository_async_get_total_user_div_awaits_execute():
+    session = FakeAsyncSession([FakeScalarResult(12.5)])
+
+    result = await FinanceRepository(session).async_get_total_user_div()
+
+    assert result == 12.5
+    assert len(session.executed) == 1
+
+
+@pytest.mark.asyncio
+async def test_finance_repository_async_get_new_effects_for_token_awaits_execute():
+    effects = [object()]
+    session = FakeAsyncSession([FakeScalarResult(effects)])
+
+    result = await FinanceRepository(session).async_get_new_effects_for_token("USDM", "123", 10)
+
+    assert result == effects
+    assert len(session.executed) == 1
