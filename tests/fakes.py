@@ -620,8 +620,20 @@ class FakeConfigService:
     def set_welcome_message(self, chat_id, message, session=None):
         self._welcome_messages[chat_id] = message
 
+    async def async_set_welcome_message(self, chat_id, message, session=None):
+        self.set_welcome_message(chat_id, message, session)
+        if session is None:
+            return
+        await session.commit()
+
     def remove_welcome_message(self, chat_id, session=None):
         self._welcome_messages.pop(chat_id, None)
+
+    async def async_remove_welcome_message(self, chat_id, session=None):
+        self.remove_welcome_message(chat_id, session)
+        if session is None:
+            return
+        await session.commit()
 
     def get_welcome_button(self, chat_id):
         return self._welcome_buttons.get(chat_id)
@@ -629,8 +641,20 @@ class FakeConfigService:
     def set_welcome_button(self, chat_id, button, session=None):
         self._welcome_buttons[chat_id] = button
 
+    async def async_set_welcome_button(self, chat_id, button, session=None):
+        self.set_welcome_button(chat_id, button, session)
+        if session is None:
+            return
+        await session.commit()
+
     def remove_welcome_button(self, chat_id, session=None):
         self._welcome_buttons.pop(chat_id, None)
+
+    async def async_remove_welcome_button(self, chat_id, session=None):
+        self.remove_welcome_button(chat_id, session)
+        if session is None:
+            return
+        await session.commit()
 
     def get_delete_income(self, chat_id):
         return self._delete_income.get(chat_id)

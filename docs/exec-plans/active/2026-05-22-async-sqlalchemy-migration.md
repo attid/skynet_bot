@@ -122,6 +122,7 @@
         - `services/database_service.py`: добавлен async `save_bot_user`; `/start` пишет через `app_context.db_service`, без injected sync session.
         - `services/config_service.py`: добавлены async persistence methods для welcome/delete-income cache paths.
         - `routers/multi_handler.py`: startup config loader и команды настроек переведены с `create_session`/`ConfigRepository(session)` на async `app_context.db_service`; `on_startup` await-ит loader.
+        - `routers/welcome.py`: `/set_welcome`, `/delete_welcome`, `/set_welcome_button`, `/stop_exchange`, `/start_exchange` больше не требуют injected sync session и пишут через async `app_context.db_service`.
         - `tests/fakes.py`: `FakeSession` поддерживает awaited `execute/commit/rollback/flush` для async repository/router tests.
     - Batch 3: stellar/time: `routers/stellar.py`, `routers/time_handlers.py`.
     - После каждого batch запускать focused tests и `just types` если объем ошибок контролируем.

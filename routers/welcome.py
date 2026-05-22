@@ -165,14 +165,14 @@ def create_emoji_captcha_keyboard(user_id, required_num):
 @router.message(Command(commands=["delete_welcome"]))
 async def cmd_delete_welcome(
     message: Message,
-    session: Session,
     app_context: Any = None,
     skyuser: SkyUser | None = None,
 ):
-    if not app_context or not app_context.config_service or not app_context.utils_service:
-        raise ValueError("app_context with config_service and utils_service required")
+    if not app_context or not app_context.config_service or not app_context.utils_service or not app_context.db_service:
+        raise ValueError("app_context with config_service, utils_service, and db_service required")
     config_service = cast(Any, app_context.config_service)
     utils_service = cast(Any, app_context.utils_service)
+    db_service = cast(Any, app_context.db_service)
     admin = await skyuser.is_admin() if skyuser else False
 
     if not admin:
@@ -183,7 +183,8 @@ async def cmd_delete_welcome(
     has_welcome = config_service.get_welcome_message(message.chat.id) is not None
 
     if has_welcome:
-        config_service.remove_welcome_message(message.chat.id, session)
+        config_service.remove_welcome_message(message.chat.id)
+        await db_service.save_bot_value(message.chat.id, BotValueTypes.WelcomeMessage, None)
 
     msg = await message.reply("Removed")
     await utils_service.sleep_and_delete(msg, 60)
@@ -196,14 +197,14 @@ async def cmd_delete_welcome(
 @router.message(Command(commands=["set_welcome"]))
 async def cmd_set_welcome(
     message: Message,
-    session: Session,
     app_context: Any = None,
     skyuser: SkyUser | None = None,
 ):
-    if not app_context or not app_context.config_service or not app_context.utils_service:
-        raise ValueError("app_context with config_service and utils_service required")
+    if not app_context or not app_context.config_service or not app_context.utils_service or not app_context.db_service:
+        raise ValueError("app_context with config_service, utils_service, and db_service required")
     config_service = cast(Any, app_context.config_service)
     utils_service = cast(Any, app_context.utils_service)
+    db_service = cast(Any, app_context.db_service)
     admin = await skyuser.is_admin() if skyuser else False
 
     if not admin:
@@ -215,11 +216,12 @@ async def cmd_set_welcome(
         welcome_html = message.html_text or message.text or ""
         welcome_text = welcome_html[13:]
 
-        config_service.set_welcome_message(message.chat.id, welcome_text, session)
+        config_service.set_welcome_message(message.chat.id, welcome_text)
+        await db_service.save_bot_value(message.chat.id, BotValueTypes.WelcomeMessage, welcome_text)
         msg = await message.reply("Added")
         await utils_service.sleep_and_delete(msg, 60)
     else:
-        await cmd_delete_welcome(message, session, app_context=app_context, skyuser=skyuser)
+        await cmd_delete_welcome(message, app_context=app_context, skyuser=skyuser)
 
     await utils_service.sleep_and_delete(message, 60)
 
@@ -228,14 +230,14 @@ async def cmd_set_welcome(
 @router.message(Command(commands=["set_welcome_button"]))
 async def cmd_set_welcome_button(
     message: Message,
-    session: Session,
     app_context: Any = None,
     skyuser: SkyUser | None = None,
 ):
-    if not app_context or not app_context.config_service or not app_context.utils_service:
-        raise ValueError("app_context with config_service and utils_service required")
+    if not app_context or not app_context.config_service or not app_context.utils_service or not app_context.db_service:
+        raise ValueError("app_context with config_service, utils_service, and db_service required")
     config_service = cast(Any, app_context.config_service)
     utils_service = cast(Any, app_context.utils_service)
+    db_service = cast(Any, app_context.db_service)
     admin = await skyuser.is_admin() if skyuser else False
 
     if not admin:
@@ -246,7 +248,8 @@ async def cmd_set_welcome_button(
     if len((message.text or "").split()) > 1:
         text = (message.text or "")[19:].strip()
 
-        config_service.set_welcome_button(message.chat.id, text, session)
+        config_service.set_welcome_button(message.chat.id, text)
+        await db_service.save_bot_value(message.chat.id, BotValueTypes.WelcomeButton, text)
         msg = await message.reply("Added")
         await utils_service.sleep_and_delete(msg, 60)
     else:
@@ -258,19 +261,18 @@ async def cmd_set_welcome_button(
 
 @update_command_info("/stop_exchange", "Остановить ботов обмена. Только для админов")
 @router.message(Command(commands=["stop_exchange"]))
-async def cmd_stop_exchange(
-    message: Message, session: Session, app_context: Any = None, skyuser: SkyUser | None = None
-):
+async def cmd_stop_exchange(message: Message, app_context: Any = None, skyuser: SkyUser | None = None):
     is_admin_user = skyuser.is_skynet_admin() if skyuser else False
 
     if not is_admin_user:
         await message.reply("You are not my admin.")
         return False
 
-    if not app_context or not app_context.stellar_service:
-        raise ValueError("app_context with stellar_service required")
+    if not app_context or not app_context.stellar_service or not app_context.db_service:
+        raise ValueError("app_context with stellar_service and db_service required")
     stellar_service = cast(Any, app_context.stellar_service)
-    ConfigRepository(session).save_bot_value(0, BotValueTypes.StopExchange, 1)
+    db_service = cast(Any, app_context.db_service)
+    await db_service.save_bot_value(0, BotValueTypes.StopExchange, 1)
     await stellar_service.stop_all_exchange()
 
     await message.reply("Was stop")
@@ -278,16 +280,17 @@ async def cmd_stop_exchange(
 
 @update_command_info("/start_exchange", "Запустить ботов обмена. Только для админов")
 @router.message(Command(commands=["start_exchange"]))
-async def cmd_start_exchange(
-    message: Message, session: Session, app_context: Any = None, skyuser: SkyUser | None = None
-):
+async def cmd_start_exchange(message: Message, app_context: Any = None, skyuser: SkyUser | None = None):
     is_admin_user = skyuser.is_skynet_admin() if skyuser else False
 
     if not is_admin_user:
         await message.reply("You are not my admin.")
         return False
 
-    ConfigRepository(session).save_bot_value(0, BotValueTypes.StopExchange, None)
+    if not app_context or not app_context.db_service:
+        raise ValueError("app_context with db_service required")
+    db_service = cast(Any, app_context.db_service)
+    await db_service.save_bot_value(0, BotValueTypes.StopExchange, None)
     await message.reply("Was start")
 
 

@@ -38,6 +38,10 @@ async def test_set_welcome_command(mock_telegram, router_app_context):
 
     # Verify config_service was updated (DI service interface)
     assert router_app_context.config_service.get_welcome_message(MTLChats.TestGroup) == "Hello $$USER$$"
+    assert (
+        await router_app_context.db_service.load_bot_value(MTLChats.TestGroup, BotValueTypes.WelcomeMessage, None)
+        == "Hello $$USER$$"
+    )
 
     # Verify reply
     requests = mock_telegram.get_requests()
@@ -141,6 +145,7 @@ async def test_stop_exchange_command(mock_telegram, router_app_context):
     await dp.feed_update(bot=router_app_context.bot, update=update)
 
     assert router_app_context.stellar_service.stop_all_exchange.called
+    assert await router_app_context.db_service.load_bot_value(0, BotValueTypes.StopExchange, None) == 1
     requests = mock_telegram.get_requests()
     assert any("Was stop" in r["data"]["text"] for r in requests if r["method"] == "sendMessage")
 
