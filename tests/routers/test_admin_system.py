@@ -8,7 +8,8 @@ from aiogram import types
 from aiogram.exceptions import TelegramBadRequest
 from routers.admin_system import router as admin_router
 from tests.conftest import RouterTestMiddleware, get_free_port
-from other.constants import MTLChats
+from tests.fakes import FakeAsyncMethod
+from other.constants import BotValueTypes, MTLChats
 import datetime
 
 
@@ -625,6 +626,8 @@ async def test_edited_channel_post_removes_stale_sync_on_telegram_error(mock_tel
     # Verify the stale record was cleaned up from sync state
     updated_sync = router_app_context.bot_state_service.get_sync_state(str(channel_id), {})
     assert str(post_id) not in updated_sync
+    persisted_sync = await router_app_context.db_service.load_bot_value(channel_id, BotValueTypes.Sync, "{}")
+    assert persisted_sync == "{}"
 
 
 @pytest.mark.asyncio
@@ -1087,6 +1090,7 @@ async def test_update_chats_info(mock_telegram, router_app_context):
     dp.include_router(admin_router)
 
     router_app_context.group_service.get_members.return_value = []
+    router_app_context.db_service.update_chat_info = FakeAsyncMethod()
 
     update = types.Update(
         update_id=44,
@@ -1104,6 +1108,7 @@ async def test_update_chats_info(mock_telegram, router_app_context):
     requests = mock_telegram.get_requests()
     messages = [r["data"]["text"] for r in requests if r["method"] == "sendMessage"]
     assert any("done" in m.lower() for m in messages)
+    assert router_app_context.db_service.update_chat_info.call_count == 2
 
 
 @pytest.mark.asyncio
@@ -1169,6 +1174,8 @@ async def test_sync_post_with_forward(mock_telegram, router_app_context):
     # Should have sent a new message (sync)
     msg_req = next((r for r in requests if r["method"] == "sendMessage"), None)
     assert msg_req is not None
+    persisted_sync = await router_app_context.db_service.load_bot_value(channel_id, BotValueTypes.Sync, "{}")
+    assert str(forward_from_message_id) in persisted_sync
 
 
 @pytest.mark.asyncio
@@ -1637,6 +1644,8 @@ async def test_resync_post_success(mock_telegram, router_app_context):
     msg_req = next((r for r in requests if r["method"] == "sendMessage"), None)
     assert msg_req is not None
     assert "восстановлена" in msg_req["data"]["text"].lower()
+    persisted_sync = await router_app_context.db_service.load_bot_value(channel_id, BotValueTypes.Sync, "{}")
+    assert post_id in persisted_sync
 
 
 @pytest.mark.asyncio

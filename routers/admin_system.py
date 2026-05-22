@@ -18,7 +18,7 @@ from aiogram.types import Message, FSInputFile, InlineKeyboardMarkup, InlineKeyb
 from loguru import logger
 from sqlalchemy.orm import Session
 
-from db.repositories import MessageRepository, ConfigRepository, ChatsRepository
+from db.repositories import MessageRepository
 from other.grist_tools import MTLGrist
 from other.open_ai_tools import talk_get_summary
 from other.constants import MTLChats, BotValueTypes
@@ -296,8 +296,9 @@ async def cmd_sync_post(message: Message, bot: Bot, session: Session, app_contex
         await message.reply("Произошла непредвиденная ошибка при получении информации о канале")
         return
 
-    if not app_context or not app_context.bot_state_service:
-        raise ValueError("app_context with bot_state_service required")
+    if not app_context or not app_context.bot_state_service or not app_context.db_service:
+        raise ValueError("app_context with bot_state_service and db_service required")
+    db_service = cast(Any, app_context.db_service)
 
     try:
         post_id = message.reply_to_message.forward_from_message_id
@@ -324,7 +325,7 @@ async def cmd_sync_post(message: Message, bot: Bot, session: Session, app_contex
         # Save sync state
         app_context.bot_state_service.set_sync_state(sync_key, channel_sync)
 
-        ConfigRepository(session).save_bot_value(chat.id, BotValueTypes.Sync, json.dumps(channel_sync))
+        await db_service.save_bot_value(chat.id, BotValueTypes.Sync, json.dumps(channel_sync))
 
         with suppress(TelegramBadRequest):
             await message.reply_to_message.delete()
@@ -348,8 +349,9 @@ async def cmd_resync_post(message: Message, session: Session, bot: Bot, app_cont
         await message.reply("Нужно ответить на сообщение, отправленное ботом")
         return
 
-    if not app_context or not app_context.bot_state_service:
-        raise ValueError("app_context with bot_state_service required")
+    if not app_context or not app_context.bot_state_service or not app_context.db_service:
+        raise ValueError("app_context with bot_state_service and db_service required")
+    db_service = cast(Any, app_context.db_service)
 
     try:
         # Получаем клавиатуру из сообщения бота
@@ -426,7 +428,7 @@ async def cmd_resync_post(message: Message, session: Session, bot: Bot, app_cont
             app_context.bot_state_service.set_sync_state(sync_key, channel_sync)
 
             # Сохраняем обновленные данные в БД
-            ConfigRepository(session).save_bot_value(chat_id, BotValueTypes.Sync, json.dumps(channel_sync))
+            await db_service.save_bot_value(chat_id, BotValueTypes.Sync, json.dumps(channel_sync))
 
             await message.reply(
                 "Синхронизация восстановлена, сообщение не обновленно, внесите любую правку в оригинал."
@@ -443,8 +445,9 @@ async def cmd_resync_post(message: Message, session: Session, bot: Bot, app_cont
 
 @router.edited_channel_post(F.text)
 async def cmd_edited_channel_post(message: Message, bot: Bot, session: Session, app_context: AppContext):
-    if not app_context or not app_context.bot_state_service:
-        raise ValueError("app_context with bot_state_service required")
+    if not app_context or not app_context.bot_state_service or not app_context.db_service:
+        raise ValueError("app_context with bot_state_service and db_service required")
+    db_service = cast(Any, app_context.db_service)
     logger.info(
         "edited_channel_post received: channel_id={}, post_id={}",
         message.chat.id,
@@ -533,7 +536,7 @@ async def cmd_edited_channel_post(message: Message, bot: Bot, session: Session, 
         if not channel_sync[post_key]:
             del channel_sync[post_key]
         app_context.bot_state_service.set_sync_state(sync_key, channel_sync)
-        ConfigRepository(session).save_bot_value(message.chat.id, BotValueTypes.Sync, json.dumps(channel_sync))
+        await db_service.save_bot_value(message.chat.id, BotValueTypes.Sync, json.dumps(channel_sync))
 
 
 @router.message(CommandStart(deep_link=True, magic=F.args.regexp(r"^eurmtl_.+")), F.chat.type == "private")
@@ -661,13 +664,14 @@ async def cmd_chats_info(message: Message, session: Session, app_context: AppCon
     if not skyuser.is_skynet_admin():
         await message.reply("You are not my admin.")
         return
-    if not app_context or not app_context.group_service:
-        raise ValueError("app_context with group_service required")
+    if not app_context or not app_context.group_service or not app_context.db_service:
+        raise ValueError("app_context with group_service and db_service required")
     group_service = cast(Any, app_context.group_service)
+    db_service = cast(Any, app_context.db_service)
     await message.answer(text="Обновление информации о чатах...")
     for chat_id in [MTLChats.DistributedGroup, -1001892843127]:
         members = await group_service.get_members(chat_id)
-        ChatsRepository(session).update_chat_info(chat_id, members)
+        await db_service.update_chat_info(chat_id, members)
     await message.answer(text="Обновление информации о чатах... Done.")
 
 
