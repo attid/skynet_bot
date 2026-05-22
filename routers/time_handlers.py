@@ -199,6 +199,7 @@ def scheduler_jobs(
 ):
     message_session_pool = async_session_pool or session_pool
     usdm_session_pool = async_session_pool or session_pool
+    check_bot_session_pool = async_session_pool or session_pool
     scheduler.add_job(
         cmd_send_message_1m, "interval", seconds=10, args=(bot, message_session_pool), misfire_grace_time=360
     )
@@ -220,7 +221,13 @@ def scheduler_jobs(
     # Задача проверки бота Stellar три раза в день
     # 10 */6 * * * /home/skynet_bot/deploy/check_stellar.sh check_bot
     scheduler.add_job(
-        cmd_check_bot, "interval", hours=6, minutes=10, args=(session_pool,), misfire_grace_time=360, jitter=120
+        cmd_check_bot,
+        "interval",
+        hours=6,
+        minutes=10,
+        args=(check_bot_session_pool,),
+        misfire_grace_time=360,
+        jitter=120,
     )
 
     # Другие задачи

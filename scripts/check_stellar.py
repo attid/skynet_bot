@@ -4,7 +4,7 @@ from datetime import datetime
 import asyncio
 import requests
 from loguru import logger
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from stellar_sdk import Server
 
 from db.repositories import MessageRepository
@@ -25,16 +25,16 @@ from other.stellar import (
 )
 
 
-def db_cmd_add_message(session, chat_id, text, topic_id=0):
+async def db_cmd_add_message(session: AsyncSession, chat_id, text, topic_id=0):
     if topic_id is None:
         topic_id = 0
-    MessageRepository(session).add_message(chat_id, text, topic_id=topic_id)
-    session.commit()
+    await MessageRepository(session).async_add_message(chat_id, text, topic_id=topic_id)
+    await session.commit()
 
 
 @safe_catch_async
 async def cmd_check_cron_transaction(session_pool):
-    with session_pool() as session:
+    async with session_pool() as session:
         assets_config = await grist_manager.load_table_data(MTLGrist.NOTIFY_ASSETS)
         await process_transactions_by_assets(session, assets_config)
         address_config = await grist_manager.load_table_data(MTLGrist.NOTIFY_ACCOUNTS)
@@ -54,7 +54,9 @@ async def process_transactions_by_assets(session, assets_config):
 
             if result:
                 result.insert(0, f"Обнаружены новые операции для {asset_name}")
-                send_message_4000(session, int(asset_config["chat_id"]), result, topic_id=asset_config["topic_id"])
+                await send_message_4000(
+                    session, int(asset_config["chat_id"]), result, topic_id=asset_config["topic_id"]
+                )
 
 
 async def process_specific_transactions(session, address_config, ignore_operations):
@@ -69,24 +71,24 @@ async def process_specific_transactions(session, address_config, ignore_operatio
             if results:
                 for result in results:
                     result.insert(0, "Получены новые транзакции")
-                    send_message_4000(session, int(address["chat_id"]), result, topic_id=address["topic_id"])
+                    await send_message_4000(session, int(address["chat_id"]), result, topic_id=address["topic_id"])
             await asyncio.sleep(3)
 
 
-def send_message_4000(session, chat_id, messages, topic_id=None):
+async def send_message_4000(session: AsyncSession, chat_id, messages, topic_id=None):
     msg = "\n".join(messages)
     if len(msg) > 4096:
         msg = "Слишком много операций показаны первые . . . \n" + msg[:4000]
-    db_cmd_add_message(session, chat_id, msg, topic_id=topic_id)
+    await db_cmd_add_message(session, chat_id, msg, topic_id=topic_id)
 
 
 @safe_catch_async
 async def cmd_check_bot(session_pool):
-    with session_pool() as session:
+    async with session_pool() as session:
         # balance Wallet
         balance = await get_balances(MTLAddresses.public_wallet)
         if int(balance["XLM"]) < 100:
-            db_cmd_add_message(session, MTLChats.SignGroup, "Внимание Баланс MyMTLWallet меньше 100 !")
+            await db_cmd_add_message(session, MTLChats.SignGroup, "Внимание Баланс MyMTLWallet меньше 100 !")
 
         # bot1
         now = datetime.now()
@@ -95,7 +97,7 @@ async def cmd_check_bot(session_pool):
                 dt = cmd_check_last_operation(bot_address)
                 delta = now - dt
                 if delta.days > 15:
-                    db_cmd_add_message(
+                    await db_cmd_add_message(
                         session,
                         MTLChats.SignGroup,
                         f"Внимание по боту обмена {bot_address} нет операций {delta.days} дней !",
@@ -104,7 +106,7 @@ async def cmd_check_bot(session_pool):
                 dt = cmd_check_last_operation(bot_address)
                 delta = now - dt
                 if delta.days > 3:
-                    db_cmd_add_message(
+                    await db_cmd_add_message(
                         session,
                         MTLChats.SignGroup,
                         f"Внимание по боту обмена {bot_address} нет операций {delta.days} дней !",
@@ -113,7 +115,7 @@ async def cmd_check_bot(session_pool):
                 dt = cmd_check_last_operation(bot_address)
                 delta = now - dt
                 if delta.days > 0:
-                    db_cmd_add_message(
+                    await db_cmd_add_message(
                         session,
                         MTLChats.SignGroup,
                         f"Внимание по боту обмена {bot_address} нет операций {delta.days} дней !",
@@ -129,7 +131,7 @@ async def cmd_check_bot(session_pool):
         for address, selling_asset, buying_asset, order_min_sum in params:
             order_sum = await stellar_get_orders_sum(address, selling_asset, buying_asset)
             if order_sum < order_min_sum:
-                db_cmd_add_message(
+                await db_cmd_add_message(
                     session,
                     MTLChats.USDMMGroup,
                     f"Внимание ордер {selling_asset.code}/{buying_asset.code} {order_sum} !",
@@ -145,7 +147,7 @@ async def cmd_check_bot(session_pool):
 
 
 @safe_catch_async
-async def cmd_check_price(session: Session):
+async def cmd_check_price(session: AsyncSession):
     # "message_id": 6568,  "chat": {"id": -1001707489173,
     cb_cb = (
         Server(horizon_url=config.horizon_url).orderbook(MTLAssets.usdc_asset, MTLAssets.eurmtl_asset).limit(200).call()
@@ -173,7 +175,9 @@ async def cmd_check_price(session: Session):
     # print('\n'.join(msg))
     # print(bt)
 
-    MessageRepository(session).add_message(MTLChats.EURMTLClubGroup, "\n".join(msg), 0, 6568, json.dumps(bt))
+    await MessageRepository(session).async_add_message(
+        MTLChats.EURMTLClubGroup, "\n".join(msg), 0, 6568, json.dumps(bt)
+    )
 
 
 async def grist_upload_users(table, data):

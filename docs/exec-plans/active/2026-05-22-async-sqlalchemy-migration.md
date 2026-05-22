@@ -139,6 +139,7 @@
       - Частично сделано:
         - `routers/time_handlers.py`: frequent `cmd_send_message_1m` scheduler job uses async session pool and `MessageRepository.async_load_new_messages`; scheduler wiring passes `AsyncSessionPool` for this job.
         - `routers/time_handlers.py`: `time_usdm_daily` uses async session pool for the scheduled USDM dividend flow; scheduler wiring passes `AsyncSessionPool` when available.
+        - `routers/time_handlers.py`: scheduled `cmd_check_bot` receives `AsyncSessionPool` when available.
         - `services/external_services.StellarService`: `create_list` and `gen_xdr` are async wrappers.
         - `routers/stellar.py`: dividend admin commands await async `create_list` and `gen_xdr`.
     - После каждого batch запускать focused tests и `just types` если объем ошибок контролируем.
@@ -146,6 +147,8 @@
 11. [ ] Шаг 11 — перевести фоновые сервисы и scripts.
     - `services/stellar_notification_service.py`: `async with self.session_pool()`.
     - `scripts/check_stellar.py`, `scripts/update_report.py`: использовать async session pool или явно оставить sync operational path с отдельным sync engine, если миграция runtime-only.
+      - Частично сделано:
+        - `scripts/check_stellar.py`: `cmd_check_bot`, `cmd_check_cron_transaction` and message enqueue helpers use async session context and async `MessageRepository` writes.
     - `other/stellar/*.py`: заменить `Session` hints и async DB calls.
       - Частично сделано:
         - `other/stellar/dividend_commands.py`: USDM/runtime dividend list creation, dividend persistence, XDR generation and transaction send paths use `AsyncSession` commits and async `FinanceRepository` reads.
