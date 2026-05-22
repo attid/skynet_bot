@@ -126,6 +126,7 @@
         - `routers/admin_panel.py`: feature toggle, admin reload, welcome delete/edit FSM handlers пишут через async `app_context.db_service` вместо `ConfigRepository(session)`.
         - `routers/admin_core.py`: topic mute/unmute/show expired mute cleanup, message-reaction mute and `/alert_me` persist through async `app_context.db_service`; mention target lookup uses async `db_service.get_user_id`.
         - `routers/last_handler.py`: saved messages, pinned URL/id, last-message dates, topic mutes and bot-user status writes go through async `app_context.db_service`; mention lookup uses async `db_service.get_user_id`.
+        - `routers/selfmod.py`: mute approval persists TopicMutes through async `app_context.db_service`.
         - `services/database_service.py`: добавлены async wrappers для `update_user_chat_date` и `save_message`.
         - `tests/fakes.py`: `FakeSession` поддерживает awaited `execute/commit/rollback/flush` для async repository/router tests.
     - Batch 3: stellar/time: `routers/stellar.py`, `routers/time_handlers.py`.

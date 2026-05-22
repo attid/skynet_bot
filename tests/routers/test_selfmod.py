@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 from aiogram import types
 
-from other.constants import MTLChats
+from other.constants import BotValueTypes, MTLChats
 from routers.selfmod import (
     SelfmodVoteCallback,
     begin_join_vote,
@@ -360,6 +360,8 @@ async def test_mute_vote_first_offense_one_day(mock_telegram, router_app_context
     topic_key = f"{chat_id}-0"
     mutes = admin_service.get_topic_mutes_by_key(topic_key)
     assert target in mutes, f"Expected mute for user {target} in {topic_key}, got {mutes}"
+    persisted_mutes = await ctx.db_service.load_bot_value(0, BotValueTypes.TopicMutes, "{}")
+    assert str(target) in persisted_mutes
     end_time_iso = mutes[target]["end_time"]
     end_dt = datetime.datetime.fromisoformat(end_time_iso)
     now = datetime.datetime.now()

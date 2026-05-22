@@ -28,9 +28,7 @@ from aiogram.types import (
     User,
 )
 from loguru import logger
-from sqlalchemy.orm import Session
 
-from db.repositories import ConfigRepository
 from other.aiogram_tools import ChatInOption, get_username_link
 from other.constants import BotValueTypes, MTLChats
 from services.app_context import AppContext
@@ -266,7 +264,7 @@ async def _apply_join_reject(bot: Bot, chat: Any, state: VoteState, app_context:
     await selfmod_service.close_vote(state.chat_id, state.vote_msg_id)
 
 
-async def _apply_mute_approve(bot: Bot, session: Session, chat: Any, state: VoteState, app_context: AppContext) -> None:
+async def _apply_mute_approve(bot: Bot, session: Any, chat: Any, state: VoteState, app_context: AppContext) -> None:
     selfmod_service = cast(SelfmodService, app_context.selfmod_service)
     admin_service = cast(Any, app_context.admin_service)
     level = await selfmod_service.add_warning(state.chat_id, state.target_user_id)
@@ -287,7 +285,7 @@ async def _apply_mute_approve(bot: Bot, session: Session, chat: Any, state: Vote
         all_mutes = admin_service.get_all_topic_mutes()
         import json as _json
 
-        ConfigRepository(session).save_bot_value(0, BotValueTypes.TopicMutes, _json.dumps(all_mutes))
+        await app_context.db_service.save_bot_value(0, BotValueTypes.TopicMutes, _json.dumps(all_mutes))
 
     with suppress(TelegramBadRequest, TelegramForbiddenError):
         await bot.restrict_chat_member(
@@ -327,7 +325,7 @@ async def cb_selfmod_vote(
     query: CallbackQuery,
     callback_data: SelfmodVoteCallback,
     bot: Bot,
-    session: Session,
+    session: Any,
     app_context: AppContext,
 ) -> None:
     if not app_context or not app_context.selfmod_service:
