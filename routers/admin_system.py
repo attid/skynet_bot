@@ -27,7 +27,6 @@ from services.app_context import AppContext
 from services.skyuser import SkyUser
 from other.pyro_tools import MessageInfo
 from other.miniapps_tools import miniapps
-from other.stellar import send_by_list
 from services.eurmtl_bot_login_service import confirm_eurmtl_bot_login
 
 router = Router()
@@ -699,7 +698,9 @@ async def cmd_push(message: Message, bot: Bot, app_context: AppContext, skyuser:
         return
 
     all_users = source_text.split()
-    await send_by_list(bot, all_users, message)
+    if not app_context or not app_context.stellar_service:
+        raise ValueError("app_context with stellar_service required")
+    await app_context.stellar_service.send_by_list(bot, all_users, message)
 
 
 @router.message(Command(commands=["get_info"]))

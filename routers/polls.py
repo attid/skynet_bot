@@ -24,7 +24,7 @@ from services.command_registry_service import update_command_info
 from services.app_context import AppContext
 from services.skyuser import SkyUser
 from other.grist_tools import MTLGrist
-from other.stellar import MTLAddresses
+from shared.domain.stellar_addresses import MTLAddresses
 from db.repositories import ConfigRepository
 
 router = Router()

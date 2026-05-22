@@ -101,6 +101,23 @@ class MtlService:
 
 
 class StellarService:
+    @property
+    def addresses(self):
+        from shared.domain.stellar_addresses import MTLAddresses
+
+        return MTLAddresses
+
+    @property
+    def assets(self):
+        from other.stellar.constants import MTLAssets
+
+        return MTLAssets
+
+    async def send_by_list(self, bot, all_users, message, session: Any = None, url: Any = None):
+        from other.stellar import send_by_list
+
+        return await send_by_list(bot=bot, all_users=all_users, message=message, session=session, url=url)
+
     async def get_balances(self, address, return_signers=False):
         return await get_balances(address, return_signers=return_signers)
 
@@ -290,7 +307,10 @@ class ReportService:
 
     async def update_main_report(self, session):
         from scripts.update_report import update_main_report
+        from scripts.mtl_backup import save_assets
+        from other.stellar.constants import MTLAssets
 
+        await save_assets([MTLAssets.mtl_asset, MTLAssets.mtlap_asset, MTLAssets.mtlrect_asset, MTLAssets.eurmtl_asset])
         return await update_main_report(session)
 
     async def update_donate_report(self, session):

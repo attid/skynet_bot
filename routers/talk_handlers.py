@@ -224,12 +224,6 @@ async def cmd_last_check_update(
     if has_words(message_text, ["ОТЧЕТ", "отчёт", "report"]):
         msg = await message.reply("Зай, я запустила обновление")
         await bot.send_chat_action(message.chat.id, ChatAction.TYPING)
-
-        from scripts.mtl_backup import save_assets
-        from other.stellar import MTLAssets
-
-        await save_assets([MTLAssets.mtl_asset, MTLAssets.mtlap_asset, MTLAssets.mtlrect_asset, MTLAssets.eurmtl_asset])
-
         await report_service.update_main_report(session)
         await msg.reply("Обновление завершено")
     if has_words(message_text, ["donate", "donates", "donated"]):

@@ -29,34 +29,65 @@ from services.selfmod_service import SelfmodService
 from services.stellar_notification_service import StellarNotificationService
 
 
+from typing import Any, cast
+
+
 class AppContext:
+    grist_service: GristService
+    gspread_service: GSpreadService
+    web_service: WebService
+    mtl_service: MtlService
+    stellar_service: StellarService
+    airdrop_service: AirdropService
+    report_service: ReportService
+    antispam_service: AntispamService
+    poll_service: PollService
+    moderation_service: ModerationService
+    ai_service: AIService
+    talk_service: TalkService
+    group_service: GroupService
+    utils_service: UtilsService
+    spam_status_service: SpamStatusService
+    config_service: ConfigService
+    feature_flags: FeatureFlagsService
+    notification_service: NotificationService
+    bot_state_service: BotStateService
+    voting_service: VotingService
+    admin_service: AdminManagementService
+    command_registry: CommandRegistryService
+    db_service: DatabaseService
+    channel_link_service: ChannelLinkService
+    selfmod_service: SelfmodService
+    stellar_notification_service: StellarNotificationService | None
+    message_thread_cache_service: Any
+
     def __init__(self):
-        self.grist_service = None
-        self.gspread_service = None
-        self.web_service = None
-        self.mtl_service = None
-        self.stellar_service = None
-        self.airdrop_service = None
-        self.report_service = None
-        self.antispam_service = None
-        self.poll_service = None
-        self.moderation_service = None
-        self.ai_service = None
-        self.talk_service = None
-        self.group_service = None
-        self.utils_service = None
+        self.grist_service = cast(GristService, None)
+        self.gspread_service = cast(GSpreadService, None)
+        self.web_service = cast(WebService, None)
+        self.mtl_service = cast(MtlService, None)
+        self.stellar_service = cast(StellarService, None)
+        self.airdrop_service = cast(AirdropService, None)
+        self.report_service = cast(ReportService, None)
+        self.antispam_service = cast(AntispamService, None)
+        self.poll_service = cast(PollService, None)
+        self.moderation_service = cast(ModerationService, None)
+        self.ai_service = cast(AIService, None)
+        self.talk_service = cast(TalkService, None)
+        self.group_service = cast(GroupService, None)
+        self.utils_service = cast(UtilsService, None)
         # DI-based services
-        self.spam_status_service = None
-        self.config_service = None
-        self.feature_flags = None
-        self.notification_service = None
-        self.bot_state_service = None
-        self.voting_service = None
-        self.admin_service = None
-        self.command_registry = None
-        self.db_service = None
-        self.channel_link_service = None
-        self.selfmod_service = None
+        self.spam_status_service = cast(SpamStatusService, None)
+        self.config_service = cast(ConfigService, None)
+        self.feature_flags = cast(FeatureFlagsService, None)
+        self.notification_service = cast(NotificationService, None)
+        self.bot_state_service = cast(BotStateService, None)
+        self.voting_service = cast(VotingService, None)
+        self.admin_service = cast(AdminManagementService, None)
+        self.command_registry = cast(CommandRegistryService, None)
+        self.db_service = cast(DatabaseService, None)
+        self.channel_link_service = cast(ChannelLinkService, None)
+        self.selfmod_service = cast(SelfmodService, None)
         self.stellar_notification_service = None
         self.message_thread_cache_service = None
 

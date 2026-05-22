@@ -788,6 +788,18 @@ class FakeMtlService:
 
 
 class FakeStellarService:
+    @property
+    def addresses(self):
+        from shared.domain.stellar_addresses import MTLAddresses
+
+        return MTLAddresses
+
+    @property
+    def assets(self):
+        from other.stellar.constants import MTLAssets
+
+        return MTLAssets
+
     def __init__(self):
         self.check_fee = FakeAsyncMethod(return_value="")
         self.decode_xdr = FakeAsyncMethod(return_value=[])

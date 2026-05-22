@@ -110,11 +110,11 @@ async def test_time_usdm_daily_sends_summary(mock_telegram, router_app_context, 
     mock_send_by_list = FakeAsyncMethod(return_value=0)
     mock_get_balances = FakeAsyncMethod(return_value={"USDM": "626.57"})
 
-    monkeypatch.setattr(time_handlers, "cmd_create_list", mock_create_list)
-    monkeypatch.setattr(time_handlers, "cmd_calc_usdm_daily", mock_calc_daily)
-    monkeypatch.setattr(time_handlers, "cmd_gen_xdr", mock_gen_xdr)
-    monkeypatch.setattr(time_handlers, "cmd_send_by_list_id", mock_send_by_list)
-    monkeypatch.setattr(time_handlers, "get_balances", mock_get_balances)
+    monkeypatch.setattr(router_app_context.stellar_service, "create_list", mock_create_list)
+    monkeypatch.setattr(router_app_context.stellar_service, "calc_usdm_daily", mock_calc_daily)
+    monkeypatch.setattr(router_app_context.stellar_service, "gen_xdr", mock_gen_xdr)
+    monkeypatch.setattr(router_app_context.stellar_service, "send_by_list_id", mock_send_by_list)
+    monkeypatch.setattr(router_app_context.stellar_service, "get_balances", mock_get_balances)
 
     await time_handlers.time_usdm_daily(mock_pool, bot)
 
@@ -156,11 +156,11 @@ async def test_time_usdm_daily_retries_send_on_error(mock_telegram, router_app_c
     mock_get_balances = FakeAsyncMethod(return_value={"USDM": "1.00"})
     mock_sleep = FakeAsyncMethod()
 
-    monkeypatch.setattr(time_handlers, "cmd_create_list", mock_create_list)
-    monkeypatch.setattr(time_handlers, "cmd_calc_usdm_daily", mock_calc_daily)
-    monkeypatch.setattr(time_handlers, "cmd_gen_xdr", mock_gen_xdr)
-    monkeypatch.setattr(time_handlers, "cmd_send_by_list_id", mock_send_by_list)
-    monkeypatch.setattr(time_handlers, "get_balances", mock_get_balances)
+    monkeypatch.setattr(router_app_context.stellar_service, "create_list", mock_create_list)
+    monkeypatch.setattr(router_app_context.stellar_service, "calc_usdm_daily", mock_calc_daily)
+    monkeypatch.setattr(router_app_context.stellar_service, "gen_xdr", mock_gen_xdr)
+    monkeypatch.setattr(router_app_context.stellar_service, "send_by_list_id", mock_send_by_list)
+    monkeypatch.setattr(router_app_context.stellar_service, "get_balances", mock_get_balances)
     monkeypatch.setattr(time_handlers.asyncio, "sleep", mock_sleep)
 
     await time_handlers.time_usdm_daily(mock_pool, bot)
@@ -192,11 +192,11 @@ async def test_time_usdm_daily_gives_up_after_many_errors(mock_telegram, router_
     mock_get_balances = FakeAsyncMethod(return_value={"USDM": "1.00"})
     mock_sleep = FakeAsyncMethod()
 
-    monkeypatch.setattr(time_handlers, "cmd_create_list", mock_create_list)
-    monkeypatch.setattr(time_handlers, "cmd_calc_usdm_daily", mock_calc_daily)
-    monkeypatch.setattr(time_handlers, "cmd_gen_xdr", mock_gen_xdr)
-    monkeypatch.setattr(time_handlers, "cmd_send_by_list_id", mock_send_by_list)
-    monkeypatch.setattr(time_handlers, "get_balances", mock_get_balances)
+    monkeypatch.setattr(router_app_context.stellar_service, "create_list", mock_create_list)
+    monkeypatch.setattr(router_app_context.stellar_service, "calc_usdm_daily", mock_calc_daily)
+    monkeypatch.setattr(router_app_context.stellar_service, "gen_xdr", mock_gen_xdr)
+    monkeypatch.setattr(router_app_context.stellar_service, "send_by_list_id", mock_send_by_list)
+    monkeypatch.setattr(router_app_context.stellar_service, "get_balances", mock_get_balances)
     monkeypatch.setattr(time_handlers.asyncio, "sleep", mock_sleep)
 
     await time_handlers.time_usdm_daily(mock_pool, bot)

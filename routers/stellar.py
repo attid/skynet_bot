@@ -13,7 +13,6 @@ from other.config_reader import start_path
 from other.constants import MTLChats
 from other.utils import float2str
 from services.command_registry_service import update_command_info
-from other.stellar import MTLAddresses, MTLAssets
 from services.skyuser import SkyUser
 
 router = Router()
@@ -83,26 +82,28 @@ async def cmd_do_council(message: Message, session: Session, app_context=None, s
     if not app_context:
         raise ValueError("app_context required")
     ctx = cast(Any, app_context)
+    addresses = ctx.stellar_service.addresses
+    assets = ctx.stellar_service.assets
 
-    balance = await ctx.stellar_service.get_balances(MTLAddresses.public_council)
+    balance = await ctx.stellar_service.get_balances(addresses.public_council)
     eurmtl_balance = float(balance.get("EURMTL", 0) or 0)
     if eurmtl_balance > 5:
         swap_xdr = await ctx.stellar_service.build_swap_xdr(
-            source_address=MTLAddresses.public_council,
-            send_asset=MTLAssets.eurmtl_asset,
+            source_address=addresses.public_council,
+            send_asset=assets.eurmtl_asset,
             send_amount=float2str(eurmtl_balance),
-            receive_asset=MTLAssets.labr_asset,
+            receive_asset=assets.labr_asset,
             receive_amount="0.0000001",
         )
         signed_swap = ctx.stellar_service.sign(swap_xdr)
         await ctx.stellar_service.async_submit(signed_swap)
-        balance = await ctx.stellar_service.get_balances(MTLAddresses.public_council)
+        balance = await ctx.stellar_service.get_balances(addresses.public_council)
 
     labr_balance = float(balance.get("LABR", 0) or 0)
     if labr_balance <= 1:
-        await message.reply(f"Low balance at {MTLAddresses.public_council} can`t pay")
+        await message.reply(f"Low balance at {addresses.public_council} can`t pay")
         return
-    url = "https://labrdistributiontx-e62teamaya-lm.a.run.app/?address=" + MTLAddresses.public_council
+    url = "https://labrdistributiontx-e62teamaya-lm.a.run.app/?address=" + addresses.public_council
 
     response = await ctx.web_service.get(url, return_type="json")
 
@@ -126,10 +127,11 @@ async def cmd_do_bim(message: Message, session: Session, app_context=None, skyus
     if not app_context:
         raise ValueError("app_context required")
     ctx = cast(Any, app_context)
-    balance = await ctx.stellar_service.get_balances(MTLAddresses.public_bod_eur)
+    addresses = ctx.stellar_service.addresses
+    balance = await ctx.stellar_service.get_balances(addresses.public_bod_eur)
 
     if int(balance.get("EURMTL", 0)) < 10:
-        await message.reply(f"Low balance at {MTLAddresses.public_bod_eur} can`t pay BIM")
+        await message.reply(f"Low balance at {addresses.public_bod_eur} can`t pay BIM")
         return
 
     # новая запись
@@ -212,10 +214,11 @@ async def cmd_do_div(message: Message, session: Session, app_context=None, skyus
     if not app_context:
         raise ValueError("app_context required")
     ctx = cast(Any, app_context)
-    balance = await ctx.stellar_service.get_balances(MTLAddresses.public_div)
+    addresses = ctx.stellar_service.addresses
+    balance = await ctx.stellar_service.get_balances(addresses.public_div)
 
     if int(balance.get("EURMTL", 0)) < 10:
-        await message.reply(f"Low balance at {MTLAddresses.public_div} can`t pay divs")
+        await message.reply(f"Low balance at {addresses.public_div} can`t pay divs")
         return
 
     div_list_id = ctx.stellar_service.create_list(session, datetime.now().strftime("mtl div %d/%m/%Y"), 0)
@@ -281,10 +284,11 @@ async def cmd_do_sats_div(message: Message, session: Session, app_context=None, 
     if not app_context:
         raise ValueError("app_context required")
     ctx = cast(Any, app_context)
-    balance = await ctx.stellar_service.get_balances(MTLAddresses.public_div)
+    addresses = ctx.stellar_service.addresses
+    balance = await ctx.stellar_service.get_balances(addresses.public_div)
 
     if int(balance.get("SATSMTL", 0)) < 100:
-        await message.reply(f"Low sats balance at {MTLAddresses.public_div} can`t pay divs")
+        await message.reply(f"Low sats balance at {addresses.public_div} can`t pay divs")
         return
 
     div_list_id = ctx.stellar_service.create_list(session, datetime.now().strftime("mtl div %d/%m/%Y"), 4)
@@ -327,10 +331,11 @@ async def cmd_do_usdm_div(message: Message, session: Session, app_context=None, 
     if not app_context:
         raise ValueError("app_context required")
     ctx = cast(Any, app_context)
-    balance = await ctx.stellar_service.get_balances(MTLAddresses.public_div)
+    addresses = ctx.stellar_service.addresses
+    balance = await ctx.stellar_service.get_balances(addresses.public_div)
 
     if int(balance.get("USDM", 0)) < 10:
-        await message.reply(f"Low usdm balance at {MTLAddresses.public_div} can`t pay divs")
+        await message.reply(f"Low usdm balance at {addresses.public_div} can`t pay divs")
         return
 
     div_list_id = ctx.stellar_service.create_list(session, datetime.now().strftime("mtl div %d/%m/%Y"), 5)
@@ -374,10 +379,11 @@ async def cmd_do_usdm_usdm_div(message: Message, session: Session, app_context=N
     if not app_context:
         raise ValueError("app_context required")
     ctx = cast(Any, app_context)
-    balance = await ctx.stellar_service.get_balances(MTLAddresses.public_usdm_div)
+    addresses = ctx.stellar_service.addresses
+    balance = await ctx.stellar_service.get_balances(addresses.public_usdm_div)
 
     if int(balance.get("USDM", 0)) < 100:
-        await message.reply(f"Low usdm balance at {MTLAddresses.public_usdm_div} can`t pay divs")
+        await message.reply(f"Low usdm balance at {addresses.public_usdm_div} can`t pay divs")
         return
 
     div_list_id = ctx.stellar_service.create_list(session, datetime.now().strftime("usdm div %d/%m/%Y"), 6)

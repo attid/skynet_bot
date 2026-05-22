@@ -11,7 +11,7 @@ from typing import Any, cast
 from db.repositories import ChatsRepository
 from other.constants import MTLChats
 from services.command_registry_service import update_command_info
-from other.stellar import MTLAddresses
+from shared.domain.stellar_addresses import MTLAddresses
 
 router = Router()
 
