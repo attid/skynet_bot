@@ -594,9 +594,10 @@ async def cmd_admin(message: Message, session: Session, bot: Bot, app_context: A
 @router.message(Command(commands=["admin"]), F.chat.type != ChatType.PRIVATE)
 async def cmd_admin_reload(message: Message, session: Session, bot: Bot, app_context: AppContext):
     """Reload admin list for current chat (group command)."""
-    if not app_context or not app_context.admin_service:
+    if not app_context or not app_context.admin_service or not app_context.db_service:
         return
     admin_service = app_context.admin_service
+    db_service = cast(Any, app_context.db_service)
 
     chat_id = message.chat.id
 
@@ -608,7 +609,7 @@ async def cmd_admin_reload(message: Message, session: Session, bot: Bot, app_con
         admin_service.set_chat_admins(chat_id, new_admins)
 
         # Save to DB
-        ConfigRepository(session).save_bot_value(chat_id, BotValueTypes.Admins, json.dumps(new_admins))
+        await db_service.save_bot_value(chat_id, BotValueTypes.Admins, json.dumps(new_admins))
 
         reply = await message.reply("OK")
 
@@ -719,7 +720,7 @@ async def cb_toggle_feature(
     query: CallbackQuery, callback_data: AdminCallback, session: Session, bot: Bot, app_context: AppContext
 ):
     """Toggle a feature flag."""
-    if not app_context or not app_context.feature_flags:
+    if not app_context or not app_context.feature_flags or not app_context.db_service:
         await query.answer("Service unavailable.", show_alert=True)
         return
     if not isinstance(query.message, Message):
@@ -729,6 +730,7 @@ async def cb_toggle_feature(
     chat_id = callback_data.chat_id
     feature = callback_data.param
     feature_flags = app_context.feature_flags
+    db_service = cast(Any, app_context.db_service)
     skynet = _is_skynet_admin(query.from_user, app_context)
 
     # Block skynet-only features for regular admins
@@ -746,7 +748,7 @@ async def cb_toggle_feature(
     enum_key = FEATURE_TO_ENUM.get(feature)
     if enum_key is not None:
         db_value = "1" if new_state else None
-        ConfigRepository(session).save_bot_value(chat_id, enum_key, db_value)
+        await db_service.save_bot_value(chat_id, enum_key, db_value)
 
     # Sync with specialized DI services for features that have side-effects
     _sync_feature_toggle(app_context, feature, chat_id, new_state)
@@ -885,7 +887,7 @@ async def cb_delete_welcome(
     query: CallbackQuery, callback_data: AdminCallback, session: Session, bot: Bot, app_context: AppContext
 ):
     """Delete welcome settings."""
-    if not app_context or not app_context.config_service:
+    if not app_context or not app_context.config_service or not app_context.db_service:
         await query.answer("Service unavailable.", show_alert=True)
         return
     if not isinstance(query.message, Message):
@@ -898,8 +900,11 @@ async def cb_delete_welcome(
     chat_id = callback_data.chat_id
 
     # Delete welcome settings from cache and DB
-    app_context.config_service.remove_welcome_message(chat_id, session)
-    app_context.config_service.remove_welcome_button(chat_id, session)
+    app_context.config_service.remove_welcome_message(chat_id)
+    app_context.config_service.remove_welcome_button(chat_id)
+    db_service = cast(Any, app_context.db_service)
+    await db_service.save_bot_value(chat_id, BotValueTypes.WelcomeMessage, None)
+    await db_service.save_bot_value(chat_id, BotValueTypes.WelcomeButton, None)
 
     await query.answer("Welcome settings deleted.")
 
@@ -935,7 +940,7 @@ async def process_welcome_message(
     message: Message, state: FSMContext, session: Session, bot: Bot, app_context: AppContext
 ):
     """Process new welcome message input."""
-    if not app_context or not app_context.config_service:
+    if not app_context or not app_context.config_service or not app_context.db_service:
         await message.answer("Service unavailable.")
         await state.clear()
         return
@@ -950,7 +955,9 @@ async def process_welcome_message(
 
     # Save welcome message to cache and DB
     new_message = message.html_text or message.text or message.caption or ""
-    app_context.config_service.set_welcome_message(chat_id, new_message, session)
+    app_context.config_service.set_welcome_message(chat_id, new_message)
+    db_service = cast(Any, app_context.db_service)
+    await db_service.save_bot_value(chat_id, BotValueTypes.WelcomeMessage, new_message)
 
     await state.clear()
 
@@ -971,7 +978,7 @@ async def process_welcome_button(
     message: Message, state: FSMContext, session: Session, bot: Bot, app_context: AppContext
 ):
     """Process new welcome button input."""
-    if not app_context or not app_context.config_service:
+    if not app_context or not app_context.config_service or not app_context.db_service:
         await message.answer("Service unavailable.")
         await state.clear()
         return
@@ -991,7 +998,9 @@ async def process_welcome_button(
         return
 
     # Save welcome button to cache and DB (stored as plain text)
-    app_context.config_service.set_welcome_button(chat_id, button_text, session)
+    app_context.config_service.set_welcome_button(chat_id, button_text)
+    db_service = cast(Any, app_context.db_service)
+    await db_service.save_bot_value(chat_id, BotValueTypes.WelcomeButton, button_text)
 
     await state.clear()
 

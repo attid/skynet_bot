@@ -23,6 +23,7 @@ from routers.admin_panel import (
     _chat_titles,
     _chat_owners,
 )
+from other.constants import BotValueTypes
 from tests.conftest import RouterTestMiddleware
 
 
@@ -518,6 +519,7 @@ async def test_cb_toggle_feature(mock_telegram, router_app_context):
 
     # Feature should now be enabled
     assert router_app_context.feature_flags.is_enabled(chat_id, "captcha")
+    assert await router_app_context.db_service.load_bot_value(chat_id, BotValueTypes.Captcha, None) == "1"
 
     requests = mock_telegram.get_requests()
     answer = next((r for r in requests if r["method"] == "answerCallbackQuery"), None)
@@ -728,6 +730,8 @@ async def test_cb_delete_welcome(mock_telegram, router_app_context):
     # Settings should be deleted
     assert router_app_context.config_service.get_welcome_message(chat_id) is None
     assert router_app_context.config_service.get_welcome_button(chat_id) is None
+    assert await router_app_context.db_service.load_bot_value(chat_id, BotValueTypes.WelcomeMessage, None) is None
+    assert await router_app_context.db_service.load_bot_value(chat_id, BotValueTypes.WelcomeButton, None) is None
 
 
 @pytest.mark.asyncio
@@ -830,6 +834,10 @@ async def test_process_welcome_message(mock_telegram, router_app_context):
     # Verify message was saved
     saved = router_app_context.config_service.get_welcome_message(chat_id)
     assert saved == "Welcome to our group, {name}!"
+    assert (
+        await router_app_context.db_service.load_bot_value(chat_id, BotValueTypes.WelcomeMessage, None)
+        == "Welcome to our group, {name}!"
+    )
 
 
 # ============ Tests: Owner Notification ============
