@@ -141,6 +141,7 @@
         - `routers/time_handlers.py`: `time_usdm_daily` uses async session pool for the scheduled USDM dividend flow; scheduler wiring passes `AsyncSessionPool` when available.
         - `routers/time_handlers.py`: scheduled `cmd_check_bot` receives `AsyncSessionPool` when available.
         - `routers/time_handlers.py`: scheduled `lite_report` receives `AsyncSessionPool` when available.
+        - `start.py`: runtime startup no longer creates sync SQLAlchemy engine/sessionmaker or stores `dp["dbsession_pool"]`.
         - `services/external_services.StellarService`: `create_list` and `gen_xdr` are async wrappers.
         - `routers/stellar.py`: dividend admin commands await async `create_list` and `gen_xdr`.
     - После каждого batch запускать focused tests и `just types` если объем ошибок контролируем.

@@ -20,9 +20,7 @@ from aiogram.types import (
 )
 from loguru import logger
 from redis.asyncio import Redis
-from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import sessionmaker
 
 # Local application imports
 from db.session import AsyncSessionPool, async_engine
@@ -163,11 +161,6 @@ async def load_routers(dp: Dispatcher, bot: Bot):
 async def main():
     logger.add("logs/skynet.log", rotation="1 MB", level="INFO")
 
-    # Запуск бота
-    engine = create_engine(config.postgres_url, pool_pre_ping=True, max_overflow=50)
-    # Creating DB connections pool
-    db_pool = sessionmaker(bind=engine)
-
     # Creating bot and its dispatcher
     if config.telegram_api_url:
         api_server = TelegramAPIServer.from_base(config.telegram_api_url, is_local=True)
@@ -223,7 +216,6 @@ async def main():
     dp.message.middleware(ThrottlingMiddleware(redis=redis))
     dp.message.middleware(EmojiReactionMiddleware())
 
-    dp["dbsession_pool"] = db_pool
     dp["app_context"] = app_context_middleware.app_context
 
     # Update global singleton for modules that import app_context directly

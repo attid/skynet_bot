@@ -256,11 +256,10 @@ def register_handlers(dp, bot):
     scheduler = AsyncIOScheduler(timezone="Europe/Podgorica")  # str(tzlocal.get_localzone()))
     aiogram_tools.scheduler = scheduler
     scheduler.start()
-    db_pool = dp["dbsession_pool"]
     db_service = DatabaseService()
     from db.session import AsyncSessionPool
 
-    scheduler_jobs(scheduler, bot, db_pool, db_service, AsyncSessionPool)
+    scheduler_jobs(scheduler, bot, AsyncSessionPool, db_service, AsyncSessionPool)
 
     logger.info("router time_handlers was loaded")
 
