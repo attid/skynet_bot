@@ -16,7 +16,7 @@ from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton, LoginUrl, User
 from loguru import logger
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from other.grist_tools import MTLGrist
 from other.open_ai_tools import talk_get_summary
@@ -155,7 +155,7 @@ async def cmd_send_file(message: Message, filename):
 
 
 @router.message(Command(commands=["summary"]))
-async def cmd_get_summary(message: Message, session: Session, app_context: AppContext, skyuser: SkyUser):
+async def cmd_get_summary(message: Message, session: AsyncSession, app_context: AppContext, skyuser: SkyUser):
     if not skyuser.is_skynet_admin():
         await message.reply("You are not my admin.")
         return False
@@ -232,7 +232,7 @@ async def cmd_sha256(message: Message):
 
 @update_command_info("/sync", "Синхронизирует сообщение в чате с постом в канале")
 @router.message(Command(commands=["sync"]))
-async def cmd_sync_post(message: Message, bot: Bot, session: Session, app_context: AppContext, skyuser: SkyUser):
+async def cmd_sync_post(message: Message, bot: Bot, session: AsyncSession, app_context: AppContext, skyuser: SkyUser):
     if not await skyuser.is_admin():
         await message.reply(skyuser.admin_denied_text())
         return
@@ -294,7 +294,7 @@ async def cmd_sync_post(message: Message, bot: Bot, session: Session, app_contex
 
 @update_command_info("/resync", "Восстанавливает синхронизацию сообщения с постом в канале")
 @router.message(Command(commands=["resync"]))
-async def cmd_resync_post(message: Message, session: Session, bot: Bot, app_context: AppContext, skyuser: SkyUser):
+async def cmd_resync_post(message: Message, session: AsyncSession, bot: Bot, app_context: AppContext, skyuser: SkyUser):
     if not await skyuser.is_admin():
         await message.reply(skyuser.admin_denied_text())
         return
@@ -399,7 +399,7 @@ async def cmd_resync_post(message: Message, session: Session, bot: Bot, app_cont
 
 
 @router.edited_channel_post(F.text)
-async def cmd_edited_channel_post(message: Message, bot: Bot, session: Session, app_context: AppContext):
+async def cmd_edited_channel_post(message: Message, bot: Bot, session: AsyncSession, app_context: AppContext):
     if not app_context or not app_context.bot_state_service or not app_context.db_service:
         raise ValueError("app_context with bot_state_service and db_service required")
     db_service = cast(Any, app_context.db_service)
@@ -615,7 +615,7 @@ async def cmd_update_mtlap(message: Message, bot: Bot, app_context: AppContext, 
 
 
 @router.message(Command(commands=["update_chats_info"]))
-async def cmd_chats_info(message: Message, session: Session, app_context: AppContext, skyuser: SkyUser):
+async def cmd_chats_info(message: Message, session: AsyncSession, app_context: AppContext, skyuser: SkyUser):
     if not skyuser.is_skynet_admin():
         await message.reply("You are not my admin.")
         return

@@ -3,7 +3,7 @@ import random
 import re
 import datetime
 from contextlib import suppress
-from typing import Any, TypeGuard, cast
+from typing import Any, cast
 
 from aiogram import Router, Bot, F
 from aiogram.enums import ParseMode, ChatMemberStatus
@@ -30,7 +30,6 @@ from aiogram.types import (
 )
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Session
 
 from db.repositories import MessageRepository
 
@@ -297,12 +296,8 @@ async def cmd_start_exchange(message: Message, app_context: Any = None, skyuser:
 bad_names = ["ЧВК ВАГНЕР", "ЧВК ВАГНЕР"]
 
 
-def _is_async_session(session: Any) -> TypeGuard[AsyncSession]:
-    return isinstance(session, AsyncSession)
-
-
 @router.chat_member(ChatMemberUpdatedFilter(IS_NOT_MEMBER >> IS_MEMBER))
-async def new_chat_member(event: ChatMemberUpdated, session: Session | AsyncSession, bot: Bot, app_context: Any = None):
+async def new_chat_member(event: ChatMemberUpdated, session: AsyncSession, bot: Bot, app_context: Any = None):
     if (
         not app_context
         or not app_context.antispam_service
@@ -365,12 +360,8 @@ async def new_chat_member(event: ChatMemberUpdated, session: Session | AsyncSess
     )
 
     chats_repo = ChatsRepository(session)
-    if _is_async_session(session):
-        await chats_repo.async_add_user_to_chat(chat_id, member)
-        user = await chats_repo.async_get_user_by_id(event.new_chat_member.user.id)
-    else:
-        chats_repo.add_user_to_chat(chat_id, member)
-        user = chats_repo.get_user_by_id(event.new_chat_member.user.id)
+    await chats_repo.async_add_user_to_chat(chat_id, member)
+    user = await chats_repo.async_get_user_by_id(event.new_chat_member.user.id)
     user_obj = cast(Any, user) if user else None
     user_type_now = int(user_obj.user_type) if user_obj and user_obj.user_type is not None else 0
 
@@ -451,10 +442,7 @@ async def new_chat_member(event: ChatMemberUpdated, session: Session | AsyncSess
                 except Exception as e:
                     message_repo = MessageRepository(session)
                     error_message = f"new_chat_member error {type(e)} {event.chat.model_dump_json()}"
-                    if _is_async_session(session):
-                        await message_repo.async_send_admin_message(error_message)
-                    else:
-                        message_repo.send_admin_message(error_message)
+                    await message_repo.async_send_admin_message(error_message)
 
             answer = await bot.send_message(
                 chat_id, msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True, reply_markup=kb_captcha
@@ -466,10 +454,7 @@ async def new_chat_member(event: ChatMemberUpdated, session: Session | AsyncSess
 
     if auto_all_enabled:
         config_repo = ConfigRepository(session)
-        if _is_async_session(session):
-            json_str = await config_repo.async_load_bot_value(chat_id, BotValueTypes.All, "[]")
-        else:
-            json_str = config_repo.load_bot_value(chat_id, BotValueTypes.All, "[]")
+        json_str = await config_repo.async_load_bot_value(chat_id, BotValueTypes.All, "[]")
         members = json.loads(json_str) if json_str else []
 
         if event.new_chat_member.user.username:
@@ -479,10 +464,7 @@ async def new_chat_member(event: ChatMemberUpdated, session: Session | AsyncSess
                 chat_id, f"{event.new_chat_member.user.full_name} dont have username cant add to /all"
             )
 
-        if _is_async_session(session):
-            await config_repo.async_save_bot_value(chat_id, BotValueTypes.All, json.dumps(members))
-        else:
-            config_repo.save_bot_value(chat_id, BotValueTypes.All, json.dumps(members))
+        await config_repo.async_save_bot_value(chat_id, BotValueTypes.All, json.dumps(members))
 
 
 @router.chat_member(ChatMemberUpdatedFilter(IS_MEMBER >> IS_NOT_MEMBER))
@@ -500,29 +482,20 @@ async def left_chat_member(
     chat_id = event.chat.id
 
     chats_repo = ChatsRepository(session)
-    if _is_async_session(session):
-        await chats_repo.async_remove_user_from_chat(chat_id, event.new_chat_member.user.id)
-    else:
-        chats_repo.remove_user_from_chat(chat_id, event.new_chat_member.user.id)
+    await chats_repo.async_remove_user_from_chat(chat_id, event.new_chat_member.user.id)
 
     auto_all_enabled = feature_flags.is_enabled(chat_id, "auto_all")
 
     if auto_all_enabled:
         config_repo = ConfigRepository(session)
-        if _is_async_session(session):
-            json_str = await config_repo.async_load_bot_value(chat_id, BotValueTypes.All, "[]")
-        else:
-            json_str = config_repo.load_bot_value(chat_id, BotValueTypes.All, "[]")
+        json_str = await config_repo.async_load_bot_value(chat_id, BotValueTypes.All, "[]")
         members = json.loads(json_str) if json_str else []
 
         if event.from_user.username:
             username = "@" + event.from_user.username
             if username in members:
                 members.remove(username)
-            if _is_async_session(session):
-                await config_repo.async_save_bot_value(chat_id, BotValueTypes.All, json.dumps(members))
-            else:
-                config_repo.save_bot_value(chat_id, BotValueTypes.All, json.dumps(members))
+            await config_repo.async_save_bot_value(chat_id, BotValueTypes.All, json.dumps(members))
 
     if event.new_chat_member.status == ChatMemberStatus.KICKED:
         actor_username = event.from_user.username if event.from_user else None
@@ -680,7 +653,7 @@ async def cq_emoji_captcha(query: CallbackQuery, callback_data: EmojiCaptchaCall
 @router.message(Command(commands=["recaptcha"]))
 async def cmd_recaptcha(
     message: Message,
-    session: Session,
+    session: AsyncSession,
     app_context: Any = None,
     skyuser: SkyUser | None = None,
 ):
@@ -747,10 +720,7 @@ async def cmd_update_admin(event: ChatMemberUpdated, session: AsyncSession, bot:
 
     admin_service.set_chat_admins(chat_id, new_admins)
     config_repo = ConfigRepository(session)
-    if _is_async_session(session):
-        await config_repo.async_save_bot_value(chat_id, BotValueTypes.Admins, json.dumps(new_admins))
-    else:
-        config_repo.save_bot_value(chat_id, BotValueTypes.Admins, json.dumps(new_admins))
+    await config_repo.async_save_bot_value(chat_id, BotValueTypes.Admins, json.dumps(new_admins))
 
 
 @router.chat_join_request()

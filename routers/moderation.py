@@ -2,7 +2,7 @@ from contextlib import suppress
 from typing import Any, cast
 
 from aiogram import Router, Bot, html
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.filters.callback_data import CallbackData
@@ -24,7 +24,7 @@ class UnbanCallbackData(CallbackData, prefix="unban"):
 
 
 @router.message(Command(commands=["ban", "sban"]))
-async def cmd_ban(message: Message, session: Session, bot: Bot, app_context: AppContext, skyuser: SkyUser):
+async def cmd_ban(message: Message, session: AsyncSession, bot: Bot, app_context: AppContext, skyuser: SkyUser):
     if (
         not app_context
         or not app_context.utils_service
@@ -94,7 +94,7 @@ async def cmd_ban(message: Message, session: Session, bot: Bot, app_context: App
 
 
 @router.message(Command(commands=["unban"]))
-async def cmd_unban(message: Message, session: Session, bot: Bot, app_context: AppContext, skyuser: SkyUser):
+async def cmd_unban(message: Message, session: AsyncSession, bot: Bot, app_context: AppContext, skyuser: SkyUser):
     if not app_context or not app_context.moderation_service:
         raise ValueError("app_context with moderation_service required")
     moderation_service = cast(Any, app_context.moderation_service)
@@ -137,7 +137,7 @@ async def cmd_unban(message: Message, session: Session, bot: Bot, app_context: A
 
 @update_command_info("/test_id", "Узнать статус ID в списке заблокированных\nПример: /test_id id или /test_id -100id")
 @router.message(Command(commands=["test_id"]))
-async def cmd_test_id(message: Message, session: Session, bot: Bot, app_context: AppContext, skyuser: SkyUser):
+async def cmd_test_id(message: Message, session: AsyncSession, bot: Bot, app_context: AppContext, skyuser: SkyUser):
     if not app_context or not app_context.moderation_service:
         raise ValueError("app_context with moderation_service required")
     moderation_service = cast(Any, app_context.moderation_service)
@@ -173,7 +173,7 @@ async def cmd_test_id(message: Message, session: Session, bot: Bot, app_context:
 @router.callback_query(UnbanCallbackData.filter())
 async def cmd_q_unban(
     call: CallbackQuery,
-    session: Session,
+    session: AsyncSession,
     bot: Bot,
     callback_data: UnbanCallbackData,
     app_context: AppContext,

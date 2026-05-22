@@ -25,7 +25,7 @@ from aiogram.types import (
     BufferedInputFile,
 )
 from loguru import logger
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from scripts.update_report import update_top_holders_report
 from other.aiogram_tools import ChatInOption, get_username_link
@@ -932,7 +932,7 @@ GD_LINK = "https://docs.google.com/spreadsheets/d/1HSgK_QvK4YmVGwFXuW5CmqgszDxe9
 
 @update_command_info("/update_top_holders", "Обновляет Top Holders Google Sheets")
 @router.message(Command(commands=["update_top_holders"]))
-async def cmd_update_top_holders(message: Message, session: Session, skyuser: SkyUser):
+async def cmd_update_top_holders(message: Message, session: AsyncSession, skyuser: SkyUser):
     if not await skyuser.is_admin():
         await message.reply(skyuser.admin_denied_text())
         return

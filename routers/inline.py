@@ -1,7 +1,7 @@
 from aiogram import Bot, Router
 from aiogram.types import InlineQuery, InlineQueryResultArticle, InputTextMessageContent
 from loguru import logger
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
 from services.app_context import AppContext
@@ -84,7 +84,7 @@ async def _resolve_chat_id(bot: Bot, identifier: str) -> int:
 @router.inline_query()
 async def inline_handler(
     inline_query: InlineQuery,
-    session: Session,
+    session: AsyncSession,
     bot: Bot,
     app_context: Optional[AppContext] = None,
 ):
@@ -121,8 +121,9 @@ async def inline_handler(
                         # For cmd_type 3, check nested structure: {chat_id: [user_ids]}
                         in_list = False
                         if chat_id in attr_list:
-                            if isinstance(attr_list[chat_id], list):
-                                in_list = user_id in attr_list[chat_id]
+                            chat_users = attr_list[chat_id]
+                            if isinstance(chat_users, list):
+                                in_list = user_id in chat_users
                         ico = "🟢 " if in_list else "🔴 "
 
                 answers.append(

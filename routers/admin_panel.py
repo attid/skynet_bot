@@ -16,7 +16,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, User
 from aiogram.utils.text_decorations import html_decoration
 from loguru import logger
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from other.constants import BotValueTypes
 from services.command_registry_service import update_command_info
@@ -95,7 +95,7 @@ _chat_owners: dict[int, int | None] = {}  # chat_id -> owner_user_id (or None if
 # ============ Helper Functions ============
 
 
-def mark_chat_inaccessible(chat_id: int, session: Session | None = None) -> None:
+def mark_chat_inaccessible(chat_id: int, session: AsyncSession | None = None) -> None:
     """Mark chat as inaccessible in memory."""
     _inaccessible_chats.add(chat_id)
 
@@ -106,7 +106,9 @@ async def async_mark_chat_inaccessible(chat_id: int, app_context: AppContext | N
     if not app_context or not app_context.db_service:
         return
     try:
-        await app_context.db_service.save_bot_value(0, BotValueTypes.Inaccessible, json.dumps(list(_inaccessible_chats)))
+        await app_context.db_service.save_bot_value(
+            0, BotValueTypes.Inaccessible, json.dumps(list(_inaccessible_chats))
+        )
     except Exception as e:
         logger.error(f"Failed to save inaccessible chats: {e}")
 
@@ -116,7 +118,7 @@ def is_chat_accessible(chat_id: int) -> bool:
     return chat_id not in _inaccessible_chats
 
 
-def unmark_chat_accessible(chat_id: int, session: Session | None = None) -> None:
+def unmark_chat_accessible(chat_id: int, session: AsyncSession | None = None) -> None:
     """Remove chat from inaccessible list in memory."""
     if chat_id not in _inaccessible_chats:
         return
@@ -131,7 +133,9 @@ async def async_unmark_chat_accessible(chat_id: int, app_context: AppContext | N
     if not app_context or not app_context.db_service:
         return
     try:
-        await app_context.db_service.save_bot_value(0, BotValueTypes.Inaccessible, json.dumps(list(_inaccessible_chats)))
+        await app_context.db_service.save_bot_value(
+            0, BotValueTypes.Inaccessible, json.dumps(list(_inaccessible_chats))
+        )
     except Exception as e:
         logger.error(f"Failed to save inaccessible chats: {e}")
 
@@ -143,7 +147,7 @@ def load_inaccessible_chats(chat_ids: list[int]) -> None:
 
 
 async def get_chat_title(
-    chat_id: int, bot: Bot, session: Session | None = None, app_context: AppContext | None = None
+    chat_id: int, bot: Bot, session: AsyncSession | None = None, app_context: AppContext | None = None
 ) -> str | None:
     """Get chat title from cache, database, or API. Returns None if chat inaccessible."""
     # Skip inaccessible chats
@@ -286,7 +290,7 @@ async def notify_owner_about_settings_change(
 
 
 async def get_user_admin_chats(
-    user_id: int, app_context: AppContext, bot: Bot, session: Session | None = None
+    user_id: int, app_context: AppContext, bot: Bot, session: AsyncSession | None = None
 ) -> list[tuple[int, str]]:
     """
     Get list of chats where user is an administrator.
@@ -527,7 +531,7 @@ def welcome_kb(chat_id: int) -> InlineKeyboardMarkup:
 
 @update_command_info("/admin", "Admin panel for chat management (use in private chat)")
 @router.message(Command(commands=["admin"]), F.chat.type == ChatType.PRIVATE)
-async def cmd_admin(message: Message, session: Session, bot: Bot, app_context: AppContext):
+async def cmd_admin(message: Message, session: AsyncSession, bot: Bot, app_context: AppContext):
     """Entry point for admin panel - shows list of chats where user is admin.
 
     Usage:
@@ -587,7 +591,7 @@ async def cmd_admin(message: Message, session: Session, bot: Bot, app_context: A
 
 
 @router.message(Command(commands=["admin"]), F.chat.type != ChatType.PRIVATE)
-async def cmd_admin_reload(message: Message, session: Session, bot: Bot, app_context: AppContext):
+async def cmd_admin_reload(message: Message, session: AsyncSession, bot: Bot, app_context: AppContext):
     """Reload admin list for current chat (group command)."""
     if not app_context or not app_context.admin_service or not app_context.db_service:
         return
@@ -629,7 +633,7 @@ async def cb_noop(query: CallbackQuery):
 
 @router.callback_query(AdminCallback.filter(F.action == "list"))
 async def cb_show_chat_list(
-    query: CallbackQuery, callback_data: AdminCallback, session: Session, bot: Bot, app_context: AppContext
+    query: CallbackQuery, callback_data: AdminCallback, session: AsyncSession, bot: Bot, app_context: AppContext
 ):
     """Show list of chats where user is admin (paginated)."""
     if not app_context or not app_context.admin_service:
@@ -656,7 +660,7 @@ async def cb_show_chat_list(
 
 @router.callback_query(AdminCallback.filter(F.action == "menu"))
 async def cb_show_chat_menu(
-    query: CallbackQuery, callback_data: AdminCallback, session: Session, bot: Bot, app_context: AppContext
+    query: CallbackQuery, callback_data: AdminCallback, session: AsyncSession, bot: Bot, app_context: AppContext
 ):
     """Show main menu for selected chat."""
     chat_id = callback_data.chat_id
@@ -684,7 +688,7 @@ async def cb_show_chat_menu(
 
 @router.callback_query(AdminCallback.filter(F.action == "flags"))
 async def cb_show_feature_flags(
-    query: CallbackQuery, callback_data: AdminCallback, session: Session, bot: Bot, app_context: AppContext
+    query: CallbackQuery, callback_data: AdminCallback, session: AsyncSession, bot: Bot, app_context: AppContext
 ):
     """Show feature flags for selected chat."""
     if not app_context or not app_context.feature_flags:
@@ -712,7 +716,7 @@ async def cb_show_feature_flags(
 
 @router.callback_query(AdminCallback.filter(F.action == "toggle"))
 async def cb_toggle_feature(
-    query: CallbackQuery, callback_data: AdminCallback, session: Session, bot: Bot, app_context: AppContext
+    query: CallbackQuery, callback_data: AdminCallback, session: AsyncSession, bot: Bot, app_context: AppContext
 ):
     """Toggle a feature flag."""
     if not app_context or not app_context.feature_flags or not app_context.db_service:
@@ -791,7 +795,7 @@ async def cb_feature_info(query: CallbackQuery, callback_data: AdminCallback, ap
 
 @router.callback_query(AdminCallback.filter(F.action == "welcome"))
 async def cb_show_welcome_settings(
-    query: CallbackQuery, callback_data: AdminCallback, session: Session, bot: Bot, app_context: AppContext
+    query: CallbackQuery, callback_data: AdminCallback, session: AsyncSession, bot: Bot, app_context: AppContext
 ):
     """Show welcome settings for selected chat."""
     if not app_context or not app_context.config_service:
@@ -879,7 +883,7 @@ async def cb_edit_welcome(
 
 @router.callback_query(AdminCallback.filter(F.action == "del"))
 async def cb_delete_welcome(
-    query: CallbackQuery, callback_data: AdminCallback, session: Session, bot: Bot, app_context: AppContext
+    query: CallbackQuery, callback_data: AdminCallback, session: AsyncSession, bot: Bot, app_context: AppContext
 ):
     """Delete welcome settings."""
     if not app_context or not app_context.config_service or not app_context.db_service:
@@ -932,7 +936,7 @@ async def cmd_cancel(message: Message, state: FSMContext):
 
 @router.message(AdminPanelStates.waiting_welcome_message, F.chat.type == ChatType.PRIVATE)
 async def process_welcome_message(
-    message: Message, state: FSMContext, session: Session, bot: Bot, app_context: AppContext
+    message: Message, state: FSMContext, session: AsyncSession, bot: Bot, app_context: AppContext
 ):
     """Process new welcome message input."""
     if not app_context or not app_context.config_service or not app_context.db_service:
@@ -970,7 +974,7 @@ async def process_welcome_message(
 
 @router.message(AdminPanelStates.waiting_welcome_button, F.chat.type == ChatType.PRIVATE)
 async def process_welcome_button(
-    message: Message, state: FSMContext, session: Session, bot: Bot, app_context: AppContext
+    message: Message, state: FSMContext, session: AsyncSession, bot: Bot, app_context: AppContext
 ):
     """Process new welcome button input."""
     if not app_context or not app_context.config_service or not app_context.db_service:
@@ -1033,7 +1037,7 @@ def _selfmod_stats_kb(chat_id: int, warnings: dict[int, int]) -> InlineKeyboardM
 
 @router.callback_query(AdminCallback.filter(F.action == "selfmod_stats"))
 async def cb_selfmod_stats(
-    query: CallbackQuery, callback_data: AdminCallback, session: Session, bot: Bot, app_context: AppContext
+    query: CallbackQuery, callback_data: AdminCallback, session: AsyncSession, bot: Bot, app_context: AppContext
 ):
     """Show selfmod warnings for the chat."""
     if not app_context or not app_context.selfmod_service:
@@ -1065,7 +1069,7 @@ async def cb_selfmod_stats(
 
 @router.callback_query(AdminCallback.filter(F.action == "selfmod_reset"))
 async def cb_selfmod_reset(
-    query: CallbackQuery, callback_data: AdminCallback, session: Session, bot: Bot, app_context: AppContext
+    query: CallbackQuery, callback_data: AdminCallback, session: AsyncSession, bot: Bot, app_context: AppContext
 ):
     """Reset warnings for a specific user."""
     if not app_context or not app_context.selfmod_service:

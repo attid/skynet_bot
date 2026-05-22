@@ -129,6 +129,9 @@
         - `routers/admin_core.py`: topic mute/unmute/show expired mute cleanup, message-reaction mute and `/alert_me` persist through async `app_context.db_service`; mention target lookup uses async `db_service.get_user_id`.
         - `routers/admin_system.py`: `/summary`, `/sync`, `/resync`, edited channel stale sync cleanup and `/update_chats_info` persist through async `app_context.db_service`.
         - `routers/moderation.py` / `services/external_services.ModerationService`: ban/unban/test_id username/status paths use awaited async DB access and async bot-user persistence.
+        - `routers/admin_core.py`, `routers/admin_panel.py`, `routers/admin_system.py`, `routers/inline.py`, `routers/moderation.py`, `routers/welcome.py`: remaining injected DB session annotations now use `AsyncSession`.
+        - `routers/welcome.py`: removed legacy sync fallbacks for join/leave/admin-update repository access.
+        - `services/config_service.py`: sync cache mutators are cache-only; DB-backed persistence is only through async methods or `DatabaseService`.
         - `services/external_services.AIService.remind`: pinned message fallback reads use async `ConfigRepository` calls.
         - `services/database_service.py`: добавлен async transactional summary builder для saved messages.
         - `routers/last_handler.py`: saved messages, pinned URL/id, last-message dates, topic mutes and bot-user status writes go through async `app_context.db_service`; mention lookup uses async `db_service.get_user_id`.
@@ -181,14 +184,16 @@
     - Если sync PostgreSQL runtime больше не нужен, удалить `psycopg2-binary`.
     - Если async SQLite tests выбраны, добавить `aiosqlite` в dev dependencies.
       - Сделано: `aiosqlite` added to dev dependency group for async repository integration tests.
+      - Решение: `psycopg2-binary` пока оставлен для sync Alembic env (`shared/infrastructure/database/alembic/env.py` uses `engine_from_config`).
     - Выполнить `uv lock`.
 
-15. [ ] Шаг 15 — статическая проверка call sites.
+15. [x] Шаг 15 — статическая проверка call sites.
     - `rg -n "from sqlalchemy.orm import Session|SessionPool|create_engine\\(|sessionmaker\\(|with .*session_pool\\(|with create_session\\(|session\\.commit\\(|session\\.rollback\\(" . --glob '*.py'`.
     - Для каждого оставшегося совпадения явно классифицировать:
       - legacy sync script intentionally left;
       - Alembic-only;
       - missed runtime path that must be fixed.
+    - Проверка после router/config cleanup: no `sqlalchemy.orm.Session`, sync `create_engine`, sync `sessionmaker`, `with create_session`, or sync repository call sites remain in runtime Python files. Remaining `async with session_pool()` and `await session.commit()` are async paths; `psycopg2-binary` remains Alembic-only.
 
 16. [ ] Шаг 16 — верификация event-loop nonblocking behavior.
     - Добавить временный или тестовый probe, который вызывает DB-heavy path параллельно с `/health` handler.
