@@ -1,4 +1,5 @@
 from enum import Enum
+from collections.abc import Awaitable, Callable
 from typing import Any, Dict, List, Optional, Union, cast
 
 from db.session import AsyncSessionPool
@@ -162,3 +163,46 @@ class DatabaseService:
                 summary_id=summary_id,
             )
             await session.commit()
+
+    async def summarize_messages(
+        self,
+        chat_id: int,
+        thread_id: int,
+        summarize_text: Callable[[str], Awaitable[str]],
+    ) -> list[str]:
+        async with self.async_session_pool() as session:
+            repo = MessageRepository(session)
+            try:
+                data = await repo.async_get_messages_without_summary(chat_id=chat_id, thread_id=thread_id)
+                if not data:
+                    return []
+
+                text = ""
+                summary = await repo.async_add_summary(text="")
+
+                for record in data:
+                    record_username = str(record.username or "")
+                    record_text = str(record.text or "")
+                    new_text = text + f"{record_username}: {record_text} \n\n"
+                    if len(new_text) < 16000:
+                        text = new_text
+                        record.summary_id = summary.id
+                        await session.flush()
+                    else:
+                        cast(Any, summary).text = await summarize_text(text)
+                        await session.flush()
+                        summary = await repo.async_add_summary(text="")
+                        text = f"{record_username}: {record_text}\n\n"
+                        record.summary_id = summary.id
+                        await session.flush()
+
+                if text:
+                    cast(Any, summary).text = await summarize_text(text)
+                    await session.flush()
+
+                summaries = await repo.async_get_summary(chat_id=chat_id, thread_id=thread_id)
+                await session.commit()
+                return [str(record.text or "") for record in summaries if str(record.text or "")]
+            except Exception:
+                await session.rollback()
+                raise

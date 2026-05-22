@@ -397,6 +397,38 @@ async def test_get_summary_not_listening(mock_telegram, router_app_context):
 
 
 @pytest.mark.asyncio
+async def test_get_summary_uses_async_db_service(mock_telegram, router_app_context):
+    """Test /summary command loads and persists summaries through db_service."""
+    router_app_context.admin_service.set_skynet_admins(["@admin"])
+    chat_id = -1004242
+    router_app_context.feature_flags.enable(chat_id, "listen")
+    router_app_context.db_service.summarize_messages = FakeAsyncMethod(return_value=["summary text"])
+
+    dp = router_app_context.dispatcher
+    dp.message.middleware(RouterTestMiddleware(router_app_context))
+    dp.include_router(admin_router)
+
+    update = types.Update(
+        update_id=401,
+        message=types.Message(
+            message_id=401,
+            date=datetime.datetime.now(),
+            chat=types.Chat(id=chat_id, type="supergroup"),
+            from_user=types.User(id=MTLChats.ITolstov, is_bot=False, first_name="Admin", username="admin"),
+            text="/summary",
+        ),
+    )
+
+    await dp.feed_update(bot=router_app_context.bot, update=update)
+
+    router_app_context.db_service.summarize_messages.assert_awaited_once()
+    args, _ = router_app_context.db_service.summarize_messages.call_args
+    assert args[:2] == (chat_id, 0)
+    requests = mock_telegram.get_requests()
+    assert any(r["method"] == "sendMessage" and "summary text" in r["data"]["text"] for r in requests)
+
+
+@pytest.mark.asyncio
 async def test_sync_post_not_admin(mock_telegram, router_app_context):
     """Test /sync command rejected for non-admin."""
     dp = router_app_context.dispatcher

@@ -18,7 +18,6 @@ from aiogram.types import Message, FSInputFile, InlineKeyboardMarkup, InlineKeyb
 from loguru import logger
 from sqlalchemy.orm import Session
 
-from db.repositories import MessageRepository
 from other.grist_tools import MTLGrist
 from other.open_ai_tools import talk_get_summary
 from other.constants import MTLChats, BotValueTypes
@@ -171,73 +170,29 @@ async def cmd_get_summary(message: Message, session: Session, app_context: AppCo
         await message.reply("No messages 1")
         return
 
+    if not app_context.db_service:
+        raise ValueError("app_context with db_service required")
+
     try:
-        thread_id = message.message_thread_id or 0
-        data = MessageRepository(session).get_messages_without_summary(
-            chat_id=message.chat.id,
-            thread_id=thread_id,
+        summaries = await app_context.db_service.summarize_messages(
+            message.chat.id,
+            message.message_thread_id or 0,
+            talk_get_summary,
         )
-
-        if not data:
-            await message.reply("Нет новых сообщений для обработки")
-            return
-
-        text = ""
-        summary = MessageRepository(session).add_summary(text=text)
-        summary_obj = cast(Any, summary)
-        session.flush()
-
-        try:
-            for record in data:
-                record_username = str(record.username or "")
-                record_text = str(record.text or "")
-                new_text = text + f"{record_username}: {record_text} \n\n"
-                if len(new_text) < 16000:
-                    text = new_text
-                    record.summary_id = summary.id
-                    session.flush()
-                else:
-                    summary_obj.text = await talk_get_summary(text)
-                    session.flush()
-                    summary = MessageRepository(session).add_summary(text="")
-                    summary_obj = cast(Any, summary)
-                    session.flush()
-                    text = f"{record_username}: {record_text}\n\n"
-                    record.summary_id = summary.id
-                    session.flush()
-
-            if text:  # Обработка оставшегося текста
-                summary_obj.text = await talk_get_summary(text)
-                session.flush()
-
-            summaries = MessageRepository(session).get_summary(
-                chat_id=message.chat.id,
-                thread_id=thread_id,
-            )
-
-            if not summaries:
-                await message.reply("Не удалось получить сводку сообщений")
-                return
-
-            for record in summaries:
-                record_text = str(record.text or "")
-                if record_text:
-                    await message.reply(record_text[:4000])
-                else:
-                    logger.warning(f"Empty summary text for record {record.id}")
-
-            session.commit()
-
-        except Exception as e:
-            session.rollback()
-            logger.error(f"Error processing messages for summary: {e}")
-            await message.reply("Произошла ошибка при обработке сообщений")
-            return
-
     except Exception as e:
-        logger.error(f"Database error in cmd_get_summary: {e}")
-        await message.reply("Произошла ошибка при работе с базой данных")
+        logger.error(f"Error processing messages for summary: {e}")
+        await message.reply("Произошла ошибка при обработке сообщений")
         return
+
+    if not summaries:
+        await message.reply("Нет новых сообщений для обработки")
+        return
+
+    for record_text in summaries:
+        if record_text:
+            await message.reply(record_text[:4000])
+        else:
+            logger.warning("Empty summary text")
 
 
 @router.message(F.document, F.chat.type == ChatType.PRIVATE)

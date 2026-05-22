@@ -99,9 +99,33 @@ class MessageRepository(BaseRepository):
         )
         return cast(List[TSavedMessages], result.scalars().all())
 
+    async def async_get_messages_without_summary(
+        self, chat_id: int, thread_id: int, dt: datetime | None = None
+    ) -> List[TSavedMessages]:
+        if dt is None:
+            dt = datetime.today()
+
+        result = await self.session.execute(
+            select(TSavedMessages).where(
+                and_(
+                    TSavedMessages.chat_id == chat_id,
+                    TSavedMessages.thread_id == thread_id,
+                    TSavedMessages.dt.between(dt.date(), dt.date() + timedelta(days=1)),
+                    TSavedMessages.summary_id.is_(None),
+                )
+            )
+        )
+        return cast(List[TSavedMessages], result.scalars().all())
+
     def add_summary(self, text: str, summary_id: int = None) -> TSummary:
         new_record = TSummary(text=text, summary_id=summary_id)
         self.session.add(new_record)
+        return new_record
+
+    async def async_add_summary(self, text: str, summary_id: int | None = None) -> TSummary:
+        new_record = TSummary(text=text, summary_id=summary_id)
+        self.session.add(new_record)
+        await self.session.flush()
         return new_record
 
     def get_summary(self, chat_id: int, thread_id: int, dt: datetime = None) -> List[TSummary]:
@@ -125,6 +149,29 @@ class MessageRepository(BaseRepository):
             return []
 
         summaries_result = self.session.execute(select(TSummary).where(TSummary.id.in_(summary_ids)))
+        return cast(List[TSummary], summaries_result.scalars().all())
+
+    async def async_get_summary(self, chat_id: int, thread_id: int, dt: datetime | None = None) -> List[TSummary]:
+        if dt is None:
+            dt = datetime.today()
+
+        summary_ids_result = await self.session.execute(
+            select(TSavedMessages.summary_id)
+            .where(
+                and_(
+                    TSavedMessages.chat_id == chat_id,
+                    TSavedMessages.thread_id == thread_id,
+                    TSavedMessages.dt.between(dt.date(), dt.date() + timedelta(days=1)),
+                )
+            )
+            .distinct()
+        )
+        summary_ids = [row[0] for row in summary_ids_result.fetchall() if row[0] is not None]
+
+        if not summary_ids:
+            return []
+
+        summaries_result = await self.session.execute(select(TSummary).where(TSummary.id.in_(summary_ids)))
         return cast(List[TSummary], summaries_result.scalars().all())
 
     def send_admin_message(self, msg: str) -> None:
