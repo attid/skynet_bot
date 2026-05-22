@@ -60,14 +60,13 @@
    - Тест: импорт `db.session` и проверка типа factory без подключения.
 
 5. [x] Шаг 5 — подготовить `DbSessionMiddleware` к async sessions.
-   - Добавить async path: `async with self.session_pool() as session:`.
-   - На успешном async handler: `await session.commit()`.
-   - На exception: `await session.rollback()` и повторно поднять ошибку.
-   - Временно сохранить sync path для legacy `start.py` до runtime cutover.
-   - Тест: fake async session проверяет commit on success, rollback on exception, session passed into data.
-   - Тест: fake sync session подтверждает, что текущий runtime не сломан до полного переключения.
-   - Добавлен lazy sync mode для update types, где часть handlers не использует DB session.
-   - `callback_query` middleware переведен на lazy sync mode: captcha callbacks больше не открывают и не commit-ят DB session, если handler не обращается к `session`.
+    - Добавить async path: `async with self.session_pool() as session:`.
+    - На успешном async handler: `await session.commit()`.
+    - На exception: `await session.rollback()` и повторно поднять ошибку.
+    - Legacy sync/lazy session path removed after runtime cutover.
+    - Тест: fake async session проверяет commit on success, rollback on exception, session passed into data.
+    - Тест: middleware commit awaits async session and yields to the event loop while a health-like probe runs.
+    - `message` and `callback_query` middleware no longer use lazy sync mode; all injected sessions are real `AsyncSession` instances.
 
 6. [x] Шаг 6 — частично переключить `start.py` на async pool для hot path.
    - `dp.chat_member.middleware(...)` переключен на `AsyncSessionPool`.
@@ -195,10 +194,11 @@
       - missed runtime path that must be fixed.
     - Проверка после router/config cleanup: no `sqlalchemy.orm.Session`, sync `create_engine`, sync `sessionmaker`, `with create_session`, or sync repository call sites remain in runtime Python files. Remaining `async with session_pool()` and `await session.commit()` are async paths; `psycopg2-binary` remains Alembic-only.
 
-16. [ ] Шаг 16 — верификация event-loop nonblocking behavior.
+16. [x] Шаг 16 — верификация event-loop nonblocking behavior.
     - Добавить временный или тестовый probe, который вызывает DB-heavy path параллельно с `/health` handler.
     - Проверить, что health handler отвечает во время DB operations.
     - Минимум: тест middleware/repository не должен использовать sync `time.sleep`/blocking DB.
+    - Сделано: `tests/middlewares/test_db_session_middleware.py::test_db_session_middleware_commit_does_not_block_event_loop` checks that an async probe runs while middleware awaits DB commit.
 
 17. [ ] Шаг 17 — полная локальная проверка.
     - `uv run ruff format --check .`
@@ -214,9 +214,10 @@
     - Проверить `docker inspect <container> --format '{{range .State.Health.Log}}{{println .Start .ExitCode .Output}}{{end}}'`.
     - После merge/push to main выполнить обязательный `just push-gitdocker latest`.
 
-19. [ ] Обновить docs/.
+19. [x] Обновить docs/.
     - Добавить короткую заметку в `docs/` или существующий conventions doc: runtime DB access is async SQLAlchemy, repositories are async, middleware owns transaction.
     - Обновить AGENTS/README не нужно, если правило уже покрыто repo guidelines.
+    - Сделано: `docs/conventions.md` documents async runtime DB access and transaction ownership.
 
 20. [ ] Завершение плана.
     - После реализации отметить все пункты.

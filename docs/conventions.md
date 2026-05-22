@@ -18,6 +18,9 @@ Coding and integration conventions for this repository.
 3. Persistence
 - DB reads/writes go through repositories in `db/repositories/`.
 - Avoid ad-hoc SQL in routers.
+- Runtime DB access uses SQLAlchemy `AsyncSession` from `db.session.AsyncSessionPool`.
+- Do not import `sqlalchemy.orm.Session` or create sync SQLAlchemy engines in bot runtime code.
+- Repositories should not own transactions. Middleware, service unit-of-work methods, or standalone scripts call `await session.commit()` / `await session.rollback()`.
 
 ## Data and Contracts
 
