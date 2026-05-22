@@ -143,5 +143,6 @@ members_key.json
 /.venv_tmp_alembic/*
 /.vscode/settings.json
 /docs/tasks.md
+/AGENTS.md
 /test*.py
 *.swp
