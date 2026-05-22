@@ -49,8 +49,8 @@ async def cmd_send_message_start_month(bot: Bot):
 
 @safe_catch_async
 async def cmd_send_message_1m(bot: Bot, session_pool):
-    with session_pool() as session:
-        for record in MessageRepository(session).load_new_messages():
+    async with session_pool() as session:
+        for record in await MessageRepository(session).async_load_new_messages():
             record_any = cast(Any, record)
             try:
                 if record_any.update_id > 0:
@@ -80,10 +80,10 @@ async def cmd_send_message_1m(bot: Bot, session_pool):
                     )
 
                 record_any.was_send = 1
-                session.commit()
+                await session.commit()
             except Exception as ex:
                 record_any.was_send = 2
-                session.commit()
+                await session.commit()
                 logger.error(f"Error in cmd_send_message_1m: {ex} {record}")
 
 
@@ -190,8 +190,17 @@ async def time_usdm_daily(session_pool, bot: Bot):
 
 
 @safe_catch
-def scheduler_jobs(scheduler: AsyncIOScheduler, bot: Bot, session_pool, db_service: Optional[DatabaseService] = None):
-    scheduler.add_job(cmd_send_message_1m, "interval", seconds=10, args=(bot, session_pool), misfire_grace_time=360)
+def scheduler_jobs(
+    scheduler: AsyncIOScheduler,
+    bot: Bot,
+    session_pool,
+    db_service: Optional[DatabaseService] = None,
+    async_session_pool=None,
+):
+    message_session_pool = async_session_pool or session_pool
+    scheduler.add_job(
+        cmd_send_message_1m, "interval", seconds=10, args=(bot, message_session_pool), misfire_grace_time=360
+    )
 
     scheduler.add_job(
         cmd_send_message_start_month, "cron", day=1, hour=8, minute=10, args=(bot,), misfire_grace_time=360
@@ -240,7 +249,9 @@ def register_handlers(dp, bot):
     scheduler.start()
     db_pool = dp["dbsession_pool"]
     db_service = DatabaseService()
-    scheduler_jobs(scheduler, bot, db_pool, db_service)
+    from db.session import AsyncSessionPool
+
+    scheduler_jobs(scheduler, bot, db_pool, db_service, AsyncSessionPool)
 
     logger.info("router time_handlers was loaded")
 

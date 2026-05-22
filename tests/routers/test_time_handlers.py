@@ -19,12 +19,26 @@ def make_session_pool(session):
     return Pool()
 
 
+def make_async_session_pool(session):
+    class Pool:
+        def __call__(self):
+            return self
+
+        async def __aenter__(self):
+            return session
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    return Pool()
+
+
 @pytest.mark.asyncio
 async def test_cmd_send_message_1m(mock_telegram, router_app_context, monkeypatch):
     bot = router_app_context.bot
 
     mock_session = FakeSession()
-    mock_pool = make_session_pool(mock_session)
+    mock_pool = make_async_session_pool(mock_session)
 
     class Record:
         update_id = 0
@@ -41,7 +55,7 @@ async def test_cmd_send_message_1m(mock_telegram, router_app_context, monkeypatc
         def __init__(self, session):
             self.session = session
 
-        def load_new_messages(self):
+        async def async_load_new_messages(self):
             return [mock_record]
 
     monkeypatch.setattr(time_handlers, "MessageRepository", FakeMessageRepository)

@@ -132,6 +132,8 @@
         - `services/database_service.py`: добавлены async wrappers для `update_user_chat_date` и `save_message`.
         - `tests/fakes.py`: `FakeSession` поддерживает awaited `execute/commit/rollback/flush` для async repository/router tests.
     - Batch 3: stellar/time: `routers/stellar.py`, `routers/time_handlers.py`.
+      - Частично сделано:
+        - `routers/time_handlers.py`: frequent `cmd_send_message_1m` scheduler job uses async session pool and `MessageRepository.async_load_new_messages`; scheduler wiring passes `AsyncSessionPool` for this job.
     - После каждого batch запускать focused tests и `just types` если объем ошибок контролируем.
 
 11. [ ] Шаг 11 — перевести фоновые сервисы и scripts.

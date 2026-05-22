@@ -58,6 +58,10 @@ class MessageRepository(BaseRepository):
         result = self.session.execute(select(TMessage).where(TMessage.was_send == 0).limit(limit))
         return cast(List[TMessage], result.scalars().all())
 
+    async def async_load_new_messages(self, limit: int = 10) -> List[TMessage]:
+        result = await self.session.execute(select(TMessage).where(TMessage.was_send == 0).limit(limit))
+        return cast(List[TMessage], result.scalars().all())
+
     def save_message(
         self, user_id: int, username: str, chat_id: int, thread_id: int, text: str, summary_id: int = None
     ) -> None:
