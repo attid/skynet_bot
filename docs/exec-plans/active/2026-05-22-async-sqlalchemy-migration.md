@@ -113,6 +113,13 @@
 10. [ ] Шаг 10 — перевести остальные routers.
     - Batch 1: moderation/admin core: `routers/moderation.py`, `routers/admin_core.py`, `routers/admin_system.py`, `routers/admin_panel.py`.
     - Batch 2: poll/talk/last/start/inline/selfmod: `routers/polls.py`, `routers/talk_handlers.py`, `routers/last_handler.py`, `routers/start_router.py`, `routers/inline.py`, `routers/selfmod.py`.
+      - Частично сделано:
+        - `routers/start_router.py`: `/start` сохраняет bot user через `ChatsRepository.async_save_bot_user`.
+        - `routers/talk_handlers.py`: pinned URL для decode загружается через `ConfigRepository.async_load_bot_value`.
+        - `routers/polls.py`: message/channel/poll-answer handlers используют async `PollService`/`ConfigRepository`; poll callback больше не требует injected sync session и открывает async session через service.
+        - `services/external_services.py`: `PollService` стал async; при `session=None` открывает `AsyncSessionPool` сам и коммитит standalone writes.
+        - `start.py`: `channel_post` и `poll_answer` middleware переключены на `AsyncSessionPool`.
+        - `tests/fakes.py`: `FakeSession` поддерживает awaited `execute/commit/rollback/flush` для async repository/router tests.
     - Batch 3: stellar/time: `routers/stellar.py`, `routers/time_handlers.py`.
     - После каждого batch запускать focused tests и `just types` если объем ошибок контролируем.
 
@@ -125,6 +132,7 @@
 12. [ ] Шаг 12 — обновить тестовые fakes.
     - `tests/fakes.py`: добавить `FakeAsyncSession` или сделать существующий `FakeSession` async-compatible.
     - Поддержать `async with`, `await commit`, `await rollback`, `await execute`, `await flush`.
+      - Частично сделано: `FakeResult` awaitable, `FakeSession.commit/rollback/flush` возвращают awaitable sentinel, добавлен `tests/test_fakes_async_session.py`.
     - Обновить `tests/conftest.py` middleware/session injection.
     - Обновить tests that assert sync fake behavior.
 

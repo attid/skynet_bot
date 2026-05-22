@@ -5,7 +5,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, URLInputFile
 from loguru import logger
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Any, cast
 
 from other.text_tools import extract_url
@@ -105,7 +105,7 @@ async def cmd_last_check_nap(message: Message):
 
 
 @router.message(StartText(("SKYNET", "СКАЙНЕТ")), HasText(("ДЕКОДИРУЙ", "decode")))
-async def cmd_last_check_decode(message: Message, session: Session, bot: Bot, app_context: AppContext):
+async def cmd_last_check_decode(message: Message, session: AsyncSession, bot: Bot, app_context: AppContext):
     if (
         not app_context
         or not app_context.stellar_service
@@ -138,7 +138,9 @@ async def cmd_last_check_decode(message: Message, session: Session, bot: Bot, ap
         else:
             await message.reply("Ссылка не найдена")
     else:
-        pinned_url = ConfigRepository(session).load_bot_value(message.chat.id, BotValueTypes.PinnedUrl) or ""
+        pinned_url = (
+            await ConfigRepository(session).async_load_bot_value(message.chat.id, BotValueTypes.PinnedUrl) or ""
+        )
         msg = await stellar_service.check_url_xdr(pinned_url)
         msg = "\n".join(msg)
         await utils_service.multi_reply(message, msg[:4000])
@@ -147,7 +149,7 @@ async def cmd_last_check_decode(message: Message, session: Session, bot: Bot, ap
 @update_command_info("Скайнет напомни", "Попросить Скайнет напомнить про подпись транзакции. Только в рабочем чате.")
 @router.message(StartText(("SKYNET", "СКАЙНЕТ")), HasText(("НАПОМНИ",)))
 async def cmd_last_check_remind(
-    message: Message, session: Session, bot: Bot, app_context: AppContext, skyuser: SkyUser
+    message: Message, session: AsyncSession, bot: Bot, app_context: AppContext, skyuser: SkyUser
 ):
     if not app_context or not app_context.talk_service:
         raise ValueError("app_context with talk_service required")
@@ -156,7 +158,7 @@ async def cmd_last_check_remind(
 
 
 @router.message(StartText(("SKYNET", "СКАЙНЕТ")), HasText(("задач",)))
-async def cmd_last_check_task(message: Message, session: Session, bot: Bot, app_context: AppContext):
+async def cmd_last_check_task(message: Message, session: AsyncSession, bot: Bot, app_context: AppContext):
     if not app_context or not app_context.ai_service:
         raise ValueError("app_context with ai_service required")
     ai_service = cast(Any, app_context.ai_service)
@@ -183,7 +185,7 @@ async def cmd_last_check_task(message: Message, session: Session, bot: Bot, app_
 
 
 @router.message(StartText(("SKYNET", "СКАЙНЕТ")), HasText(("гороскоп",)))
-async def cmd_last_check_horoscope(message: Message, session: Session, bot: Bot, app_context: AppContext):
+async def cmd_last_check_horoscope(message: Message, session: AsyncSession, bot: Bot, app_context: AppContext):
     if not app_context or not app_context.ai_service:
         raise ValueError("app_context with ai_service required")
     ai_service = cast(Any, app_context.ai_service)
@@ -195,7 +197,7 @@ async def cmd_last_check_horoscope(message: Message, session: Session, bot: Bot,
 @update_command_info("Скайнет обнови гарантов", "Попросить Скайнет обновить файл гарантов. Только в рабочем чате.")
 @router.message(StartText(("SKYNET", "СКАЙНЕТ")), HasText(("ОБНОВИ",)))
 async def cmd_last_check_update(
-    message: Message, session: Session, bot: Bot, app_context: AppContext, skyuser: SkyUser
+    message: Message, session: AsyncSession, bot: Bot, app_context: AppContext, skyuser: SkyUser
 ):
     if not app_context or not app_context.admin_service or not app_context.report_service:
         raise ValueError("app_context with admin_service and report_service required")
@@ -288,7 +290,7 @@ async def handle_private_message_links(message: Message, bot: Bot):
 @router.message(F.chat.type == ChatType.PRIVATE, F.text)
 @router.message(StartText(("SKYNET", "СКАЙНЕТ", "SKYNET4", "СКАЙНЕТ4")), F.text)
 @router.message(Command(commands=["skynet"]))
-async def cmd_last_check_p(message: Message, session: Session, bot: Bot, app_context: AppContext):
+async def cmd_last_check_p(message: Message, session: AsyncSession, bot: Bot, app_context: AppContext):
     if not app_context or not app_context.ai_service:
         raise ValueError("app_context with ai_service required")
     ai_service = cast(Any, app_context.ai_service)

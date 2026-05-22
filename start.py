@@ -196,9 +196,9 @@ async def main():
     dp.callback_query.middleware(DbSessionMiddleware(db_pool, lazy=True))
     dp.inline_query.middleware(DbSessionMiddleware(db_pool))
     dp.chat_member.middleware(DbSessionMiddleware(AsyncSessionPool))
-    dp.channel_post.middleware(DbSessionMiddleware(db_pool))
+    dp.channel_post.middleware(DbSessionMiddleware(AsyncSessionPool))
     dp.edited_channel_post.middleware(DbSessionMiddleware(db_pool))
-    dp.poll_answer.middleware(DbSessionMiddleware(db_pool))
+    dp.poll_answer.middleware(DbSessionMiddleware(AsyncSessionPool))
     dp.message_reaction.middleware(DbSessionMiddleware(db_pool))
 
     dp.message.middleware(app_context_middleware)

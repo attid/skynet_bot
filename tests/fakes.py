@@ -141,6 +141,12 @@ class FakeResult:
     def __init__(self, data=None):
         self._data = data
 
+    def __await__(self):
+        async def _return_self():
+            return self
+
+        return _return_self().__await__()
+
     def scalar_one_or_none(self):
         if self._data is None:
             return None
@@ -166,6 +172,14 @@ class FakeResult:
         return [(self._data,)]
 
 
+class AwaitableNone:
+    def __await__(self):
+        async def _return_none():
+            return None
+
+        return _return_none().__await__()
+
+
 class FakeSession:
     """
     Smart fake session that stores data in memory and supports
@@ -189,10 +203,12 @@ class FakeSession:
         for obj in self._pending_adds:
             self._store_object(obj)
         self._pending_adds.clear()
+        return AwaitableNone()
 
     def rollback(self):
         self.rolled_back = True
         self._pending_adds.clear()
+        return AwaitableNone()
 
     def flush(self):
         self.flushed = True
@@ -200,6 +216,7 @@ class FakeSession:
         for obj in self._pending_adds:
             self._store_object(obj)
         self._pending_adds.clear()
+        return AwaitableNone()
 
     def close(self):
         pass
@@ -663,7 +680,7 @@ class FakePollServiceMethod:
         self._return_value = None
         self._has_return_value = False
 
-    def __call__(self, *args, **kwargs):
+    async def __call__(self, *args, **kwargs):
         self._calls.append((args, kwargs))
         if self._has_return_value:
             return self._return_value

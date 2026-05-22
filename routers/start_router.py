@@ -5,7 +5,7 @@ from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, ReactionTypeEmoji
 from loguru import logger
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Any, cast
 
 from db.repositories import ChatsRepository
@@ -49,10 +49,10 @@ links_msg = f"""
 
 @update_command_info("/start", "начать все с чистого листа")
 @router.message(CommandStart(deep_link=False, magic=F.args.is_(None)), F.chat.type == "private")
-async def cmd_start(message: Message, state: FSMContext, session: Session, bot: Bot):
+async def cmd_start(message: Message, state: FSMContext, session: AsyncSession, bot: Bot):
     await state.clear()
     if message.from_user:
-        ChatsRepository(session).save_bot_user(message.from_user.id, message.from_user.username)
+        await ChatsRepository(session).async_save_bot_user(message.from_user.id, message.from_user.username)
     await message.reply(startmsg)
 
 
@@ -62,7 +62,7 @@ ALL_EMOJI = """👍 👎 ❤ 🔥 🥰 👏 😁 🤔 🤯 😱 🤬 😢 🎉 �
 
 
 @router.message(Command("emoji"), F.chat.type == "private")
-async def cmd_emoji(message: Message, state: FSMContext, session: Session, bot: Bot):
+async def cmd_emoji(message: Message, state: FSMContext, session: AsyncSession, bot: Bot):
     args = (message.text or "").split()[1:]
 
     if not args:

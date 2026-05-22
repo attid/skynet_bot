@@ -357,33 +357,67 @@ class AntispamService:
 
 
 class PollService:
-    def save_poll(self, session, chat_id, message_id, poll_data):
+    async def save_poll(self, session, chat_id, message_id, poll_data):
         from db.repositories import ConfigRepository
+        from db.session import AsyncSessionPool
         import json
 
-        ConfigRepository(session).save_bot_value(chat_id, -1 * message_id, json.dumps(poll_data))
+        if session is None:
+            async with AsyncSessionPool() as owned_session:
+                await ConfigRepository(owned_session).async_save_bot_value(
+                    chat_id, -1 * message_id, json.dumps(poll_data)
+                )
+                await owned_session.commit()
+            return
 
-    def load_poll(self, session, chat_id, message_id):
+        await ConfigRepository(session).async_save_bot_value(chat_id, -1 * message_id, json.dumps(poll_data))
+
+    async def load_poll(self, session, chat_id, message_id):
         from db.repositories import ConfigRepository
-        import json
-        from routers.polls import empty_poll
-
-        return json.loads(ConfigRepository(session).load_bot_value(chat_id, -1 * message_id, empty_poll))
-
-    def save_mtla_poll(self, session, poll_id, poll_data):
-        from db.repositories import ConfigRepository
-        from other.constants import MTLChats
-        import json
-
-        ConfigRepository(session).save_bot_value(MTLChats.MTLA_Poll, int(poll_id), json.dumps(poll_data))
-
-    def load_mtla_poll(self, session, poll_id):
-        from db.repositories import ConfigRepository
-        from other.constants import MTLChats
+        from db.session import AsyncSessionPool
         import json
         from routers.polls import empty_poll
 
-        return json.loads(ConfigRepository(session).load_bot_value(MTLChats.MTLA_Poll, int(poll_id), empty_poll))
+        if session is None:
+            async with AsyncSessionPool() as owned_session:
+                value = await ConfigRepository(owned_session).async_load_bot_value(chat_id, -1 * message_id, empty_poll)
+                return json.loads(value)
+
+        return json.loads(await ConfigRepository(session).async_load_bot_value(chat_id, -1 * message_id, empty_poll))
+
+    async def save_mtla_poll(self, session, poll_id, poll_data):
+        from db.repositories import ConfigRepository
+        from db.session import AsyncSessionPool
+        from other.constants import MTLChats
+        import json
+
+        if session is None:
+            async with AsyncSessionPool() as owned_session:
+                await ConfigRepository(owned_session).async_save_bot_value(
+                    MTLChats.MTLA_Poll, int(poll_id), json.dumps(poll_data)
+                )
+                await owned_session.commit()
+            return
+
+        await ConfigRepository(session).async_save_bot_value(MTLChats.MTLA_Poll, int(poll_id), json.dumps(poll_data))
+
+    async def load_mtla_poll(self, session, poll_id):
+        from db.repositories import ConfigRepository
+        from db.session import AsyncSessionPool
+        from other.constants import MTLChats
+        import json
+        from routers.polls import empty_poll
+
+        if session is None:
+            async with AsyncSessionPool() as owned_session:
+                value = await ConfigRepository(owned_session).async_load_bot_value(
+                    MTLChats.MTLA_Poll, int(poll_id), empty_poll
+                )
+                return json.loads(value)
+
+        return json.loads(
+            await ConfigRepository(session).async_load_bot_value(MTLChats.MTLA_Poll, int(poll_id), empty_poll)
+        )
 
 
 class ModerationService:
