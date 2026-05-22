@@ -158,6 +158,7 @@
         - `db/repositories/finance.py`: added async read helpers for dividend lists, payments, transaction counts and asset operation history.
         - `db/repositories/finance.py`: added async read helpers for total BIM dividends and token effects.
         - `other/stellar/monitoring.py`, `other/stellar/display_commands.py`, `other/stellar/utils.py`: Stellar monitoring/display/push lookup paths use async repository or DB service lookups.
+        - `db/repositories/payments.py`, `db/repositories/wallets.py`: removed internal sync `self.session.commit()` calls; transaction ownership stays in service/UoW layer.
     - Решение по scripts зафиксировать в плане выполнения: full async предпочтительнее, runtime-only быстрее и безопаснее.
 
 12. [ ] Шаг 12 — обновить тестовые fakes.

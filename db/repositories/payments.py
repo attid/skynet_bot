@@ -64,7 +64,6 @@ class PaymentsRepository(BaseRepository):
             .filter(TPayments.id.in_(payment_ids))
             .update({TPayments.was_packed: 1}, synchronize_session=False)
         )
-        self.session.commit()
         return count
 
     def get_total_for_user(self, user_key: str) -> Decimal:
@@ -97,7 +96,6 @@ class PaymentsRepository(BaseRepository):
             was_packed=0,
         )
         self.session.add(record)
-        self.session.commit()
         return self._to_domain(record)
 
     def _to_domain(self, record: TPayments) -> Payment:

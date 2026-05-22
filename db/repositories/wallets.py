@@ -114,7 +114,6 @@ class WalletsRepository(BaseRepository):
             .update({MyMtlWalletBot.default_wallet: 1}, synchronize_session=False)
         )
 
-        self.session.commit()
         return count > 0
 
     def update_balances(self, public_key: str, balances: dict) -> bool:
@@ -126,7 +125,6 @@ class WalletsRepository(BaseRepository):
             .filter(MyMtlWalletBot.public_key == public_key)
             .update({MyMtlWalletBot.balances: balances_json}, synchronize_session=False)
         )
-        self.session.commit()
         return count > 0
 
     def mark_for_deletion(self, wallet_id: int) -> bool:
@@ -136,7 +134,6 @@ class WalletsRepository(BaseRepository):
             .filter(MyMtlWalletBot.id == wallet_id)
             .update({MyMtlWalletBot.need_delete: 1}, synchronize_session=False)
         )
-        self.session.commit()
         return count > 0
 
     def count_user_wallets(self, user_id: int) -> int:
