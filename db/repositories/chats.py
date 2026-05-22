@@ -9,6 +9,10 @@ from other.pyro_tools import GroupMember
 from shared.infrastructure.database.models import Chat, ChatMember, BotUsers, BotUserChats
 
 
+def _utcnow_naive() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
 # DTOs replacing MongoUser and MongoChat
 class ChatUserDTO(BaseModel):
     user_id: Optional[int] = None
@@ -34,7 +38,7 @@ class ChatsRepository(BaseRepository):
         self._raise_sync_removed("update_chat_info")
 
     async def async_update_chat_info(self, chat_id: int, members: List[GroupMember], clear_users: bool = False) -> bool:
-        now = datetime.now(UTC)
+        now = _utcnow_naive()
 
         result = await self.session.execute(select(Chat).where(Chat.chat_id == chat_id))
         chat = result.scalar_one_or_none()
@@ -93,7 +97,7 @@ class ChatsRepository(BaseRepository):
         self._raise_sync_removed("add_user_to_chat")
 
     async def async_add_user_to_chat(self, chat_id: int, member: GroupMember) -> bool:
-        now = datetime.now(UTC)
+        now = _utcnow_naive()
 
         result = await self.session.execute(select(Chat).where(Chat.chat_id == chat_id))
         chat = result.scalar_one_or_none()
@@ -147,7 +151,7 @@ class ChatsRepository(BaseRepository):
         if not chat:
             return False
 
-        now = datetime.now(UTC)
+        now = _utcnow_naive()
 
         result = await self.session.execute(
             select(ChatMember).where(and_(ChatMember.chat_id == chat_id, ChatMember.user_id == user_id))
@@ -309,7 +313,7 @@ class ChatsRepository(BaseRepository):
         if metadata_updated:
             chat.metadata_ = new_metadata
 
-        chat.last_updated = datetime.now(UTC)
+        chat.last_updated = _utcnow_naive()
         return True
 
     # BotUsers methods (from requests.py)
@@ -401,7 +405,7 @@ class ChatsRepository(BaseRepository):
 
     async def async_upsert_chat_info(self, chat_id: int, title: Optional[str], username: Optional[str]) -> None:
         """Create or update chat with title and username."""
-        now = datetime.now(UTC)
+        now = _utcnow_naive()
         chat = await self.async_get_chat_by_id(chat_id)
         if chat:
             chat.title = title

@@ -161,6 +161,37 @@ async def test_add_and_remove_user(db_session):
 
 
 @pytest.mark.asyncio
+async def test_chat_repository_writes_naive_datetimes_for_postgres_timestamp_columns(db_session):
+    repo = ChatsRepository(db_session)
+    chat_id = 2003
+    member = GroupMember(user_id=11, username="joiner2", full_name="Joiner Two", is_admin=False)
+
+    await repo.async_add_user_to_chat(chat_id, member)
+    await db_session.commit()
+
+    chat = (await db_session.execute(select(Chat).where(Chat.chat_id == chat_id))).scalar_one()
+    chat_member = (
+        await db_session.execute(select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.user_id == 11))
+    ).scalar_one()
+
+    assert chat.created_at.tzinfo is None
+    assert chat.last_updated.tzinfo is None
+    assert chat_member.created_at.tzinfo is None
+
+    await repo.async_remove_user_from_chat(chat_id, 11)
+    await db_session.commit()
+
+    chat = (await db_session.execute(select(Chat).where(Chat.chat_id == chat_id))).scalar_one()
+    chat_member = (
+        await db_session.execute(select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.user_id == 11))
+    ).scalar_one()
+
+    assert chat.last_updated.tzinfo is None
+    assert chat_member.left_at is not None
+    assert chat_member.left_at.tzinfo is None
+
+
+@pytest.mark.asyncio
 async def test_get_users_joined_last_day(db_session):
     repo = ChatsRepository(db_session)
     chat_id = 3003
