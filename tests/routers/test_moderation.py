@@ -5,6 +5,7 @@ from aiogram import types
 
 from routers.moderation import router as moderation_router, UnbanCallbackData
 from tests.conftest import RouterTestMiddleware
+from tests.fakes import FakeAsyncMethod
 from other.constants import MTLChats
 from shared.domain.user import SpamStatus
 
@@ -130,5 +131,58 @@ async def test_test_id_command(mock_telegram, router_app_context):
 
     await dp.feed_update(bot=router_app_context.bot, update=update)
 
+    requests = mock_telegram.get_requests()
+    assert any("Good User" in r["data"]["text"] for r in requests if r["method"] == "sendMessage")
+
+
+@pytest.mark.asyncio
+async def test_ban_command_resolves_username_asynchronously(mock_telegram, router_app_context):
+    dp = router_app_context.dispatcher
+    dp.message.middleware(RouterTestMiddleware(router_app_context))
+    dp.include_router(moderation_router)
+
+    router_app_context.admin_service.set_skynet_admins(["@admin"])
+    router_app_context.moderation_service.get_user_id = FakeAsyncMethod(return_value=777)
+
+    update = types.Update(
+        update_id=5,
+        message=types.Message(
+            message_id=5,
+            date=datetime.datetime.now(),
+            chat=types.Chat(id=MTLChats.TestGroup, type="supergroup", title="Test Chat"),
+            from_user=types.User(id=999, is_bot=False, first_name="Admin", username="admin"),
+            text="/ban @spammer",
+        ),
+    )
+
+    await dp.feed_update(bot=router_app_context.bot, update=update)
+
+    router_app_context.moderation_service.get_user_id.assert_awaited_once()
+    args, _ = router_app_context.moderation_service.ban_user.call_args
+    assert args[2] == 777
+
+
+@pytest.mark.asyncio
+async def test_test_id_command_checks_status_asynchronously(mock_telegram, router_app_context):
+    dp = router_app_context.dispatcher
+    dp.message.middleware(RouterTestMiddleware(router_app_context))
+    dp.include_router(moderation_router)
+
+    router_app_context.moderation_service.check_user_status = FakeAsyncMethod(return_value=SpamStatus.GOOD)
+
+    update = types.Update(
+        update_id=6,
+        message=types.Message(
+            message_id=6,
+            date=datetime.datetime.now(),
+            chat=types.Chat(id=MTLChats.TestGroup, type="supergroup", title="Test Chat"),
+            from_user=types.User(id=111, is_bot=False, first_name="User", username="user"),
+            text="/test_id",
+        ),
+    )
+
+    await dp.feed_update(bot=router_app_context.bot, update=update)
+
+    router_app_context.moderation_service.check_user_status.assert_awaited_once()
     requests = mock_telegram.get_requests()
     assert any("Good User" in r["data"]["text"] for r in requests if r["method"] == "sendMessage")

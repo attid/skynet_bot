@@ -919,12 +919,12 @@ class FakeModerationService:
         self._user_status[user_id] = SpamStatus.NEW
         return True
 
-    def check_user_status(self, session, user_id):
+    async def check_user_status(self, session, user_id):
         from shared.domain.user import SpamStatus
 
         return self._user_status.get(user_id, SpamStatus.NEW)
 
-    def get_user_id(self, session, username):
+    async def get_user_id(self, session, username):
         if isinstance(username, str):
             if username.isdigit() or (username.startswith("-") and username[1:].isdigit()):
                 return int(username)

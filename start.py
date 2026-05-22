@@ -192,14 +192,14 @@ async def main():
 
     # Настройка middleware
     app_context_middleware = AppContextMiddleware(bot)
-    dp.message.middleware(DbSessionMiddleware(db_pool, lazy=True))
-    dp.callback_query.middleware(DbSessionMiddleware(db_pool, lazy=True))
-    dp.inline_query.middleware(DbSessionMiddleware(db_pool))
+    dp.message.middleware(DbSessionMiddleware(AsyncSessionPool, lazy=True))
+    dp.callback_query.middleware(DbSessionMiddleware(AsyncSessionPool, lazy=True))
+    dp.inline_query.middleware(DbSessionMiddleware(AsyncSessionPool))
     dp.chat_member.middleware(DbSessionMiddleware(AsyncSessionPool))
     dp.channel_post.middleware(DbSessionMiddleware(AsyncSessionPool))
-    dp.edited_channel_post.middleware(DbSessionMiddleware(db_pool))
+    dp.edited_channel_post.middleware(DbSessionMiddleware(AsyncSessionPool))
     dp.poll_answer.middleware(DbSessionMiddleware(AsyncSessionPool))
-    dp.message_reaction.middleware(DbSessionMiddleware(db_pool))
+    dp.message_reaction.middleware(DbSessionMiddleware(AsyncSessionPool))
 
     dp.message.middleware(app_context_middleware)
     dp.callback_query.middleware(app_context_middleware)

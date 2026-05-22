@@ -63,7 +63,7 @@ async def cmd_ban(message: Message, session: Session, bot: Bot, app_context: App
             await msg.reply(f"Was banned by {actor_username} in {chat_url} chat.\nSpam check: {spam_check}")
         elif len(command_text.split()) > 1 and skynet_admin:
             try:
-                user_id = moderation_service.get_user_id(session, command_text.split()[1])
+                user_id = await moderation_service.get_user_id(session, command_text.split()[1])
             except ValueError as e:
                 await message.reply(str(e))
                 return
@@ -109,7 +109,7 @@ async def cmd_unban(message: Message, session: Session, bot: Bot, app_context: A
             if param.isdigit() or (param.startswith("-") and param[1:].isdigit()):
                 user_id = int(param)
             else:
-                user_id = moderation_service.get_user_id(session, param)
+                user_id = await moderation_service.get_user_id(session, param)
         except ValueError as e:
             await message.reply(str(e))
             return
@@ -148,7 +148,7 @@ async def cmd_test_id(message: Message, session: Session, bot: Bot, app_context:
             if param.isdigit() or (param.startswith("-") and param[1:].isdigit()):
                 user_id = int(param)
             else:
-                user_id = moderation_service.get_user_id(session, param)
+                user_id = await moderation_service.get_user_id(session, param)
         except ValueError as e:
             await message.reply(str(e))
             return
@@ -156,7 +156,7 @@ async def cmd_test_id(message: Message, session: Session, bot: Bot, app_context:
         sender_id = message.from_user.id if message.from_user else skyuser.sender_chat_id
         user_id = skyuser.sender_chat_id if sender_id == MTLChats.Channel_Bot else sender_id
 
-    user_status = moderation_service.check_user_status(session, user_id)
+    user_status = await moderation_service.check_user_status(session, user_id)
 
     if user_status == SpamStatus.NEW:
         message_text = "New User"

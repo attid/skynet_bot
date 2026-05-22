@@ -423,7 +423,7 @@ class PollService:
 class ModerationService:
     async def ban_user(self, session, chat_id, user_id, bot, revoke_messages=True):
         from aiogram.exceptions import TelegramBadRequest
-        from start import add_bot_users
+        from start import async_add_bot_users
 
         _log_moderation_action(
             action="ban",
@@ -448,7 +448,7 @@ class ModerationService:
             )
             return False
         else:
-            add_bot_users(session, user_id, None, 2)
+            await async_add_bot_users(session, user_id, None, 2)
             _log_moderation_action(
                 action="ban",
                 actor_id=None,
@@ -462,7 +462,7 @@ class ModerationService:
 
     async def unban_user(self, session, chat_id, user_id, bot):
         from aiogram.exceptions import TelegramBadRequest
-        from start import add_bot_users
+        from start import async_add_bot_users
 
         _log_moderation_action(
             action="unban",
@@ -490,7 +490,7 @@ class ModerationService:
             )
             return False
         else:
-            add_bot_users(session, user_id, None, 0)
+            await async_add_bot_users(session, user_id, None, 0)
             _log_moderation_action(
                 action="unban",
                 actor_id=None,
@@ -502,11 +502,11 @@ class ModerationService:
             )
             return True
 
-    def check_user_status(self, session, user_id):
+    async def check_user_status(self, session, user_id):
         from db.repositories import ChatsRepository
         from shared.domain.user import SpamStatus
 
-        user = ChatsRepository(session).get_user_by_id(user_id)
+        user = await ChatsRepository(session).async_get_user_by_id(user_id)
         if user:
             try:
                 return SpamStatus(getattr(user, "user_type", SpamStatus.NEW.value))
@@ -514,15 +514,15 @@ class ModerationService:
                 return SpamStatus.NEW
         return SpamStatus.NEW
 
-    def get_user_id(self, session, username):
+    async def get_user_id(self, session, username):
         from db.repositories import ChatsRepository
 
-        return ChatsRepository(session).get_user_id(username)
+        return await ChatsRepository(session).async_get_user_id(username)
 
-    def add_bot_user(self, session, user_id, username, user_type):
-        from start import add_bot_users
+    async def add_bot_user(self, session, user_id, username, user_type):
+        from start import async_add_bot_users
 
-        add_bot_users(session, user_id, username, user_type)
+        await async_add_bot_users(session, user_id, username, user_type)
 
 
 class AIService:
