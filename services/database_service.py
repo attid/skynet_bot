@@ -2,7 +2,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Union, cast
 
 from db.session import AsyncSessionPool
-from db.repositories import ConfigRepository, ChatsRepository, ChatDTO, ChatUserDTO
+from db.repositories import ConfigRepository, ChatsRepository, MessageRepository, ChatDTO, ChatUserDTO
 from other.pyro_tools import GroupMember
 
 
@@ -139,3 +139,26 @@ class DatabaseService:
         async with self.async_session_pool() as session:
             repo = ChatsRepository(session)
             return await repo.async_get_user_id(username)
+
+    async def update_user_chat_date(self, user_id: int, chat_id: int) -> None:
+        async with self.async_session_pool() as session:
+            repo = ChatsRepository(session)
+            await repo.async_update_user_chat_date(user_id, chat_id)
+            await session.commit()
+
+    # --- MessageRepository methods ---
+
+    async def save_message(
+        self, user_id: int, username: str, chat_id: int, thread_id: int, text: str, summary_id: int | None = None
+    ) -> None:
+        async with self.async_session_pool() as session:
+            repo = MessageRepository(session)
+            await repo.async_save_message(
+                user_id=user_id,
+                username=username,
+                chat_id=chat_id,
+                thread_id=thread_id,
+                text=text,
+                summary_id=summary_id,
+            )
+            await session.commit()

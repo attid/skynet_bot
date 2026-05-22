@@ -585,6 +585,19 @@ class ChatsRepository(BaseRepository):
             new_record = BotUserChats(user_id=user_id, chat_id=chat_id, dt_last=datetime.now())
             self.session.add(new_record)
 
+    async def async_update_user_chat_date(self, user_id: int, chat_id: int) -> None:
+        existing_record = (
+            await self.session.execute(
+                select(BotUserChats).where(and_(BotUserChats.user_id == user_id, BotUserChats.chat_id == chat_id))
+            )
+        ).scalar_one_or_none()
+
+        if existing_record:
+            existing_record.dt_last = datetime.now()
+        else:
+            new_record = BotUserChats(user_id=user_id, chat_id=chat_id, dt_last=datetime.now())
+            self.session.add(new_record)
+
     def get_user_by_id(self, user_id: int) -> Optional[BotUsers]:
         """Get user by ID."""
         result = self.session.execute(select(BotUsers).where(BotUsers.user_id == user_id))

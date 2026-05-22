@@ -1530,7 +1530,9 @@ class FakeDatabaseService:
     def __init__(self):
         self._chats = {}  # chat_id -> ChatDTO
         self._bot_values: dict[tuple[int, object], object] = {}
-        self._bot_users: dict[int, str | None] = {}
+        self._bot_users: dict[int, FakeBotUsers] = {}
+        self._user_chat_dates: dict[tuple[int, int], object] = {}
+        self._saved_messages: list[dict[str, object]] = []
 
     async def get_chat_by_id(self, chat_id: int):
         """Get chat from database by ID, returns ChatDTO or None."""
@@ -1567,14 +1569,45 @@ class FakeDatabaseService:
         return self._bot_values.get((chat_id, self._key(chat_key)), default_value)
 
     async def save_bot_user(self, user_id: int, username: str | None, user_type: int = 0) -> None:
-        self._bot_users[user_id] = username
+        existing_user = self._bot_users.get(user_id)
+        if existing_user:
+            if username:
+                existing_user.user_name = username
+            existing_user.user_type = user_type
+        else:
+            self._bot_users[user_id] = FakeBotUsers(user_id, username, user_type)
 
     async def get_user_id(self, username: str) -> int:
         normalized = username.lstrip("@")
-        for user_id, stored_username in self._bot_users.items():
-            if stored_username == normalized or stored_username == username:
+        for user_id, user in self._bot_users.items():
+            if user.user_name == normalized or user.user_name == username:
                 return user_id
         raise ValueError(f"User {username} not found")
+
+    async def update_user_chat_date(self, user_id: int, chat_id: int) -> None:
+        import datetime
+
+        self._user_chat_dates[(user_id, chat_id)] = datetime.datetime.now()
+
+    async def save_message(
+        self,
+        user_id: int,
+        username: str,
+        chat_id: int,
+        thread_id: int,
+        text: str,
+        summary_id: int | None = None,
+    ) -> None:
+        self._saved_messages.append(
+            {
+                "user_id": user_id,
+                "username": username,
+                "chat_id": chat_id,
+                "thread_id": thread_id,
+                "text": text[:4000],
+                "summary_id": summary_id,
+            }
+        )
 
     async def get_chat_ids_by_key(self, chat_key) -> list[int]:
         normalized = self._key(chat_key)

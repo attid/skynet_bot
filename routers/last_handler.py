@@ -19,18 +19,14 @@ from aiogram.types import (
 )
 from aiogram.fsm.context import FSMContext
 from loguru import logger
-from sqlalchemy.orm import Session
 
 from other.text_tools import extract_url
-from db.repositories import MessageRepository, ChatsRepository
 from middlewares.throttling import rate_limit
-from start import add_bot_users
 from other.aiogram_tools import ChatInOption, get_username_link, cmd_sleep_and_delete
 from other.constants import MTLChats, BotValueTypes
 from other.pyro_tools import MessageInfo, pyro_update_msg_info
 from other.miniapps_tools import miniapps
 from shared.domain.user import SpamStatus
-from db.repositories import ConfigRepository
 from services.skyuser import SkyUser
 
 router = Router()
@@ -154,12 +150,19 @@ def _remove_topic_mute(app_context, chat_id: int, thread_id: int | None, user_id
     app_context.admin_service.remove_user_mute(chat_id, thread_id, user_id)
 
 
-async def _save_topic_mutes_to_db(session: Session, app_context) -> None:
-    """Save topic mutes to database using session + ConfigRepository."""
+def _get_db_service(app_context):
+    """Return async database service from app context."""
+    if not app_context or not app_context.db_service:
+        raise ValueError("app_context with db_service required")
+    return app_context.db_service
+
+
+async def _save_topic_mutes_to_db(app_context) -> None:
+    """Save topic mutes to database using async database service."""
     if not app_context or not app_context.admin_service:
         raise ValueError("app_context with admin_service required")
     all_mutes = app_context.admin_service.get_all_topic_mutes()
-    ConfigRepository(session).save_bot_value(0, BotValueTypes.TopicMutes, json.dumps(all_mutes))
+    await _get_db_service(app_context).save_bot_value(0, BotValueTypes.TopicMutes, json.dumps(all_mutes))
 
 
 ########################################################################################################################
@@ -180,11 +183,11 @@ def _get_sender_name(message: Message) -> str:
     return ""
 
 
-def save_url(chat_id, msg_id, msg, session):
+async def save_url(chat_id, msg_id, msg, app_context):
     url = extract_url(msg)
-    repo = ConfigRepository(session)
-    repo.save_bot_value(chat_id, BotValueTypes.PinnedUrl, url)
-    repo.save_bot_value(chat_id, BotValueTypes.PinnedId, msg_id)
+    db_service = _get_db_service(app_context)
+    await db_service.save_bot_value(chat_id, BotValueTypes.PinnedUrl, url)
+    await db_service.save_bot_value(chat_id, BotValueTypes.PinnedId, msg_id)
 
 
 async def set_vote(message, app_context=None):
@@ -256,7 +259,7 @@ async def check_alert(bot, message, session, app_context=None):
             if entity.type == "mention":
                 username = entity.extract_from(message.text)
                 try:
-                    user_id = ChatsRepository(session).get_user_id(username)
+                    user_id = await _get_db_service(app_context).get_user_id(username)
                 except ValueError as ex:
                     user_id = 0
                     logger.warning(ex)
@@ -279,7 +282,7 @@ async def check_alert(bot, message, session, app_context=None):
 async def save_last(message, session, app_context=None):
     if _is_feature_enabled(app_context, message.chat.id, "save_last_message_date"):
         if message.from_user:
-            ChatsRepository(session).update_user_chat_date(message.from_user.id, message.chat.id)
+            await _get_db_service(app_context).update_user_chat_date(message.from_user.id, message.chat.id)
 
 
 async def notify_message(message: Message, app_context=None):
@@ -327,7 +330,7 @@ async def notify_message(message: Message, app_context=None):
             # print(msg)
 
 
-async def cmd_check_reply_only(message: Message, session: Session, bot: Bot, state: FSMContext, app_context=None):
+async def cmd_check_reply_only(message: Message, session: Any, bot: Bot, state: FSMContext, app_context=None):
     has_hashtag = False
     if message.entities:
         for entity in message.entities:
@@ -365,7 +368,7 @@ async def cmd_check_reply_only(message: Message, session: Session, bot: Bot, sta
         or message.is_automatic_forward
     ):
         if message.from_user:
-            MessageRepository(session).save_message(
+            await _get_db_service(app_context).save_message(
                 user_id=message.from_user.id,
                 username=message.from_user.username or "",
                 thread_id=message.message_thread_id or 0,
@@ -424,7 +427,7 @@ async def cmd_check_reply_only(message: Message, session: Session, bot: Bot, sta
             await cmd_sleep_and_delete(msg_d, 120)
 
 
-async def cmd_tools(message: Message, bot: Bot, session: Session, app_context=None):
+async def cmd_tools(message: Message, bot: Bot, session: Any, app_context=None):
     if not app_context or not app_context.stellar_service or not app_context.utils_service:
         raise ValueError("app_context with stellar_service and utils_service required")
     stellar_service = cast(Any, app_context.stellar_service)
@@ -446,15 +449,15 @@ async def cmd_tools(message: Message, bot: Bot, session: Session, app_context=No
                     break
 
     if url_found or ("eurmtl.me/sign_tools" in url_text):
-        msg_id = ConfigRepository(session).load_bot_value(message.chat.id, BotValueTypes.PinnedId)
+        msg_id = await _get_db_service(app_context).load_bot_value(message.chat.id, BotValueTypes.PinnedId)
         with suppress(TelegramBadRequest):
             await bot.unpin_chat_message(message.chat.id, msg_id)
 
-        save_url(message.chat.id, message.message_id, url_text, session)
+        await save_url(message.chat.id, message.message_id, url_text, app_context)
         with suppress(TelegramBadRequest):
             await message.pin()
 
-        pinned_url = ConfigRepository(session).load_bot_value(message.chat.id, BotValueTypes.PinnedUrl)
+        pinned_url = await _get_db_service(app_context).load_bot_value(message.chat.id, BotValueTypes.PinnedUrl)
         msg = await stellar_service.check_url_xdr(pinned_url)
         msg = "\n".join(msg)
 
@@ -494,7 +497,7 @@ async def check_mute(message, session, app_context=None):
         logger.error(f"Invalid date format for user {user_id} in chat {chat_thread_key}: {e}")
         # Remove the invalid entry
         _remove_topic_mute(app_context, chat_id, thread_id, user_id)
-        await _save_topic_mutes_to_db(session, app_context)
+        await _save_topic_mutes_to_db(app_context)
         return False
 
     if current_time < end_time:
@@ -502,7 +505,7 @@ async def check_mute(message, session, app_context=None):
         return True
     else:
         _remove_topic_mute(app_context, chat_id, thread_id, user_id)
-        await _save_topic_mutes_to_db(session, app_context)
+        await _save_topic_mutes_to_db(app_context)
         return False
 
 
@@ -513,7 +516,7 @@ async def check_mute(message, session, app_context=None):
 
 @rate_limit(0, "listen")
 @router.message(F.text)  # если текст #точно не приватное, приватные выше остановились
-async def cmd_last_check(message: Message, session: Session, bot: Bot, state: FSMContext, app_context=None):
+async def cmd_last_check(message: Message, session: Any, bot: Bot, state: FSMContext, app_context=None):
     # Dependency Injection: check_spam
     # Using app_context if available (and antispam service)
     chat_id = message.chat.id
@@ -564,13 +567,13 @@ async def cmd_last_check(message: Message, session: Session, bot: Bot, state: FS
     if _get_spam_status(app_context, user_id) == SpamStatus.NEW:
         await set_vote(message, app_context=app_context)
 
-    add_bot_users(
-        session, user_id, message.from_user.username if message.from_user and message.from_user.username else None, 1
+    await _get_db_service(app_context).save_bot_user(
+        user_id, message.from_user.username if message.from_user and message.from_user.username else None, 1
     )
 
     # Check listen using DI service
     if _is_feature_enabled(app_context, chat_id, "listen"):
-        MessageRepository(session).save_message(
+        await _get_db_service(app_context).save_message(
             user_id=user_id,
             username=message.from_user.username if message.from_user and message.from_user.username else "",
             thread_id=message.message_thread_id or 0,
@@ -580,7 +583,7 @@ async def cmd_last_check(message: Message, session: Session, bot: Bot, state: FS
 
 
 @router.message(ChatInOption("no_first_link"))  # точно не текс, выше остановились
-async def cmd_last_check_other(message: Message, session: Session, bot: Bot, app_context):
+async def cmd_last_check_other(message: Message, session: Any, bot: Bot, app_context):
     sender_id = message.from_user.id if message.from_user else 0
     user_id = message.sender_chat.id if sender_id == MTLChats.Channel_Bot and message.sender_chat else sender_id
 
@@ -610,7 +613,7 @@ async def cq_spam_check(
     query: CallbackQuery,
     callback_data: SpamCheckCallbackData,
     bot: Bot,
-    session: Session,
+    session: Any,
     app_context=None,
     skyuser: SkyUser | None = None,
 ):
@@ -666,12 +669,12 @@ async def cq_spam_check(
             result="success",
         )
         await query.answer("Oops, bringing the message back!", show_alert=True)
-        add_bot_users(session, callback_data.user_id, None, 1)
+        await _get_db_service(app_context).save_bot_user(callback_data.user_id, None, 1)
         await query.message.edit_reply_markup(
             reply_markup=get_named_reply_markup(f"✅ Restored {query.from_user.username}")
         )
     else:
-        add_bot_users(session, callback_data.user_id, None, 2)
+        await _get_db_service(app_context).save_bot_user(callback_data.user_id, None, 2)
         await query.answer("Banned !")
         await query.message.edit_reply_markup(
             reply_markup=get_named_reply_markup(f"✅ Banned {query.from_user.username}")
@@ -781,7 +784,7 @@ async def cq_first_vote_check(
     query: CallbackQuery,
     callback_data: FirstMessageCallbackData,
     bot: Bot,
-    session: Session,
+    session: Any,
     app_context=None,
     skyuser: SkyUser | None = None,
 ):
@@ -867,7 +870,7 @@ async def cq_first_vote_check(
                 source_handler="routers.last_handler.cq_first_vote_check",
                 result="success",
             )
-        add_bot_users(session, callback_data.user_id, None, 2)
+        await _get_db_service(app_context).save_bot_user(callback_data.user_id, None, 2)
         await query.answer("Message marked as spam and user restricted.", show_alert=True)
         return None
 

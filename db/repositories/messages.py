@@ -71,6 +71,18 @@ class MessageRepository(BaseRepository):
         )
         self.session.add(new_message)
 
+    async def async_save_message(
+        self, user_id: int, username: str, chat_id: int, thread_id: int, text: str, summary_id: int | None = None
+    ) -> None:
+        self.save_message(
+            user_id=user_id,
+            username=username,
+            chat_id=chat_id,
+            thread_id=thread_id,
+            text=text,
+            summary_id=summary_id,
+        )
+
     def get_messages_without_summary(self, chat_id: int, thread_id: int, dt: datetime = None) -> List[TSavedMessages]:
         if dt is None:
             dt = datetime.today()

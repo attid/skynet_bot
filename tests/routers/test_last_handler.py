@@ -11,7 +11,7 @@ from routers.last_handler import (
 )
 from tests.conftest import RouterTestMiddleware
 from tests.fakes import FakeAsyncMethod, FakeSession
-from other.constants import MTLChats
+from other.constants import BotValueTypes, MTLChats
 
 
 def build_message_update(chat_id, user_id=123, text="Hello", **kwargs):
@@ -137,7 +137,7 @@ async def test_cq_spam_check(mock_telegram, router_app_context):
     assert any(r["method"] == "banChatMember" for r in requests)
     assert any("Banned" in r["data"]["text"] for r in requests if r["method"] == "answerCallbackQuery")
     assert any(r["method"] == "editMessageReplyMarkup" for r in requests)
-    assert router_app_context.session._bot_users[456].user_type == 2
+    assert router_app_context.db_service._bot_users[456].user_type == 2
 
 
 @pytest.mark.asyncio
@@ -174,7 +174,7 @@ async def test_cq_spam_check_restore_restrict_and_artifact(mock_telegram, router
     assert any(
         "bringing the message back" in r["data"]["text"] for r in requests if r["method"] == "answerCallbackQuery"
     )
-    assert router_app_context.session._bot_users[456].user_type == 1
+    assert router_app_context.db_service._bot_users[456].user_type == 1
 
 
 @pytest.mark.asyncio
@@ -443,3 +443,88 @@ async def test_notify_message(mock_telegram, router_app_context):
     assert any(r["method"] == "sendMessage" and str(r["data"]["chat_id"]) == str(dest_chat_id) for r in requests)
 
     router_app_context.notification_service.disable_message_notify(chat_id)
+
+
+@pytest.mark.asyncio
+async def test_save_last_persists_through_async_db_service(router_app_context):
+    chat_id = -1010
+    user_id = 123
+    router_app_context.feature_flags.enable(chat_id, "save_last_message_date")
+    router_app_context.db_service.update_user_chat_date = FakeAsyncMethod()
+
+    message = build_message_update(chat_id=chat_id, user_id=user_id, text="Hello").message
+
+    await last_handler.save_last(message, FakeSession(), app_context=router_app_context)
+
+    router_app_context.db_service.update_user_chat_date.assert_awaited_once_with(user_id, chat_id)
+
+
+@pytest.mark.asyncio
+async def test_reply_only_allowed_saves_message_through_async_db_service(router_app_context):
+    chat_id = -1011
+    user_id = 123
+    router_app_context.db_service.save_message = FakeAsyncMethod()
+
+    reply_to = types.Message(
+        message_id=10,
+        date=datetime.datetime.now(),
+        chat=types.Chat(id=chat_id, type="supergroup", title="Group"),
+        from_user=types.User(id=user_id, is_bot=False, first_name="User", username="user"),
+        text="Original",
+    )
+    message = build_message_update(chat_id=chat_id, user_id=user_id, text="Reply", reply_to_message=reply_to).message
+
+    await last_handler.cmd_check_reply_only(
+        message=message,
+        session=FakeSession(),
+        bot=router_app_context.bot,
+        state=router_app_context.dispatcher.fsm.get_context(
+            bot=router_app_context.bot, chat_id=chat_id, user_id=user_id
+        ),
+        app_context=router_app_context,
+    )
+
+    router_app_context.db_service.save_message.assert_awaited_once_with(
+        user_id=user_id,
+        username="user",
+        chat_id=chat_id,
+        thread_id=0,
+        text="Reply",
+    )
+
+
+@pytest.mark.asyncio
+async def test_cmd_tools_persists_pinned_url_through_async_db_service(router_app_context):
+    chat_id = -1012
+    message = build_message_update(chat_id=chat_id, user_id=123, text="https://eurmtl.me/sign_tools?xdr=abc").message
+    message.as_(router_app_context.bot)
+    router_app_context.db_service.save_bot_value = FakeAsyncMethod(side_effect=router_app_context.db_service.save_bot_value)
+    router_app_context.db_service.load_bot_value = FakeAsyncMethod(side_effect=router_app_context.db_service.load_bot_value)
+    router_app_context.stellar_service.check_url_xdr.return_value = ["ok"]
+
+    await last_handler.cmd_tools(message, router_app_context.bot, FakeSession(), app_context=router_app_context)
+
+    assert router_app_context.db_service.save_bot_value.call_args_list[:2] == [
+        ((chat_id, BotValueTypes.PinnedUrl, "https://eurmtl.me/sign_tools?xdr=abc"), {}),
+        ((chat_id, BotValueTypes.PinnedId, message.message_id), {}),
+    ]
+    router_app_context.stellar_service.check_url_xdr.assert_awaited_once_with("https://eurmtl.me/sign_tools?xdr=abc")
+
+
+@pytest.mark.asyncio
+async def test_cmd_last_check_persists_bot_user_through_async_db_service(
+    mock_telegram, router_app_context, monkeypatch
+):
+    dp = router_app_context.dispatcher
+    dp.message.middleware(RouterTestMiddleware(router_app_context))
+    dp.include_router(last_router)
+
+    chat_id = -1013
+    user_id = 123
+    router_app_context.db_service.save_bot_user = FakeAsyncMethod()
+    monkeypatch.setattr(last_handler, "check_alert", FakeAsyncMethod())
+
+    update = build_message_update(chat_id=chat_id, user_id=user_id, text="Hello")
+    await dp.feed_update(bot=router_app_context.bot, update=update)
+
+    router_app_context.db_service.save_bot_user.assert_awaited_once_with(user_id, "user", 1)
