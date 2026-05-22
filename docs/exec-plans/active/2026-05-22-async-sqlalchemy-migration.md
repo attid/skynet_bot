@@ -219,6 +219,14 @@
     - Проверить logs на отсутствие `greenlet_spawn has not been called`, `MissingGreenlet`, `coroutine was never awaited`.
     - Проверить `docker inspect <container> --format '{{range .State.Health.Log}}{{println .Start .ExitCode .Output}}{{end}}'`.
     - После merge/push to main выполнить обязательный `just push-gitdocker latest`.
+    - Сделано:
+      - `git push origin main` pushed `main` to `eafd909`.
+      - `just push-gitdocker latest` built and pushed `ghcr.io/montelibero/skynet:latest`.
+      - Published image digest: `sha256:3d9d00bd0965e6e559e9b3680ca70a04e1534a41b1beb02429695b2830959465`.
+    - Не проверено из текущей среды:
+      - `docker service ps skynet_bot --no-trunc`: local Docker daemon is not a swarm manager.
+      - `ssh docker3 ...`: SSH denied (`Permission denied (publickey,password)`).
+      - Production `/health` and container health logs require access to the swarm manager/host.
 
 19. [x] Обновить docs/.
     - Добавить короткую заметку в `docs/` или существующий conventions doc: runtime DB access is async SQLAlchemy, repositories are async, middleware owns transaction.
