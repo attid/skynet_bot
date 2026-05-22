@@ -340,12 +340,17 @@ async def cmd_save_votes(session: AsyncSession | None, app_context: AppContext):
 
 @update_command_info("/poll_reload_vote", "Перечитать голоса из блокчейна")
 @router.message(Command(commands=["poll_reload_vote"]))
-async def cmd_poll_reload_vote_handler(message: Message, app_context: AppContext, skyuser: SkyUser):
+async def cmd_poll_reload_vote_handler(
+    message: Message,
+    app_context: AppContext,
+    skyuser: SkyUser,
+    session: AsyncSession | None = None,
+):
     if not skyuser.is_skynet_admin():
         await message.reply("You are not my admin.")
         return False
 
-    vote_list = await cmd_save_votes(None, app_context)
+    vote_list = await cmd_save_votes(session, app_context)
     entries_with_dots = []
 
     for key, value in vote_list.items():
