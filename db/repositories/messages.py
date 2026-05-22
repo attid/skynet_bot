@@ -18,15 +18,7 @@ class MessageRepository(BaseRepository):
         button_json: str = None,
         topic_id: int = 0,
     ) -> None:
-        new_message = TMessage(
-            user_id=user_id,
-            text=text,
-            use_alarm=use_alarm,
-            update_id=update_id,
-            button_json=button_json,
-            topic_id=topic_id,
-        )
-        self.session.add(new_message)
+        self._raise_sync_removed("add_message")
         # Assuming commit happens at UoW level or caller.
         # But requests.py did commit. To maintain compatibility without rewriting callers yet:
         # I should probably not commit here if I want to move to UoW, but the migration step
@@ -45,7 +37,7 @@ class MessageRepository(BaseRepository):
         button_json: str = None,
         topic_id: int = 0,
     ) -> None:
-        self.add_message(
+        new_message = TMessage(
             user_id=user_id,
             text=text,
             use_alarm=use_alarm,
@@ -53,10 +45,10 @@ class MessageRepository(BaseRepository):
             button_json=button_json,
             topic_id=topic_id,
         )
+        self.session.add(new_message)
 
     def load_new_messages(self, limit: int = 10) -> List[TMessage]:
-        result = self.session.execute(select(TMessage).where(TMessage.was_send == 0).limit(limit))
-        return cast(List[TMessage], result.scalars().all())
+        self._raise_sync_removed("load_new_messages")
 
     async def async_load_new_messages(self, limit: int = 10) -> List[TMessage]:
         result = await self.session.execute(select(TMessage).where(TMessage.was_send == 0).limit(limit))
@@ -64,6 +56,11 @@ class MessageRepository(BaseRepository):
 
     def save_message(
         self, user_id: int, username: str, chat_id: int, thread_id: int, text: str, summary_id: int = None
+    ) -> None:
+        self._raise_sync_removed("save_message")
+
+    async def async_save_message(
+        self, user_id: int, username: str, chat_id: int, thread_id: int, text: str, summary_id: int | None = None
     ) -> None:
         new_message = TSavedMessages(
             user_id=user_id,
@@ -75,33 +72,8 @@ class MessageRepository(BaseRepository):
         )
         self.session.add(new_message)
 
-    async def async_save_message(
-        self, user_id: int, username: str, chat_id: int, thread_id: int, text: str, summary_id: int | None = None
-    ) -> None:
-        self.save_message(
-            user_id=user_id,
-            username=username,
-            chat_id=chat_id,
-            thread_id=thread_id,
-            text=text,
-            summary_id=summary_id,
-        )
-
     def get_messages_without_summary(self, chat_id: int, thread_id: int, dt: datetime = None) -> List[TSavedMessages]:
-        if dt is None:
-            dt = datetime.today()
-
-        result = self.session.execute(
-            select(TSavedMessages).where(
-                and_(
-                    TSavedMessages.chat_id == chat_id,
-                    TSavedMessages.thread_id == thread_id,
-                    TSavedMessages.dt.between(dt.date(), dt.date() + timedelta(days=1)),
-                    TSavedMessages.summary_id.is_(None),
-                )
-            )
-        )
-        return cast(List[TSavedMessages], result.scalars().all())
+        self._raise_sync_removed("get_messages_without_summary")
 
     async def async_get_messages_without_summary(
         self, chat_id: int, thread_id: int, dt: datetime | None = None
@@ -122,9 +94,7 @@ class MessageRepository(BaseRepository):
         return cast(List[TSavedMessages], result.scalars().all())
 
     def add_summary(self, text: str, summary_id: int = None) -> TSummary:
-        new_record = TSummary(text=text, summary_id=summary_id)
-        self.session.add(new_record)
-        return new_record
+        self._raise_sync_removed("add_summary")
 
     async def async_add_summary(self, text: str, summary_id: int | None = None) -> TSummary:
         new_record = TSummary(text=text, summary_id=summary_id)
@@ -133,27 +103,7 @@ class MessageRepository(BaseRepository):
         return new_record
 
     def get_summary(self, chat_id: int, thread_id: int, dt: datetime = None) -> List[TSummary]:
-        if dt is None:
-            dt = datetime.today()
-
-        summary_ids_result = self.session.execute(
-            select(TSavedMessages.summary_id)
-            .where(
-                and_(
-                    TSavedMessages.chat_id == chat_id,
-                    TSavedMessages.thread_id == thread_id,
-                    TSavedMessages.dt.between(dt.date(), dt.date() + timedelta(days=1)),
-                )
-            )
-            .distinct()
-        )
-        summary_ids = [row[0] for row in summary_ids_result.fetchall() if row[0] is not None]
-
-        if not summary_ids:
-            return []
-
-        summaries_result = self.session.execute(select(TSummary).where(TSummary.id.in_(summary_ids)))
-        return cast(List[TSummary], summaries_result.scalars().all())
+        self._raise_sync_removed("get_summary")
 
     async def async_get_summary(self, chat_id: int, thread_id: int, dt: datetime | None = None) -> List[TSummary]:
         if dt is None:
@@ -179,7 +129,7 @@ class MessageRepository(BaseRepository):
         return cast(List[TSummary], summaries_result.scalars().all())
 
     def send_admin_message(self, msg: str) -> None:
-        self.add_message(MTLChats.ITolstov, msg)
+        self._raise_sync_removed("send_admin_message")
 
     async def async_send_admin_message(self, msg: str) -> None:
-        self.add_message(MTLChats.ITolstov, msg)
+        await self.async_add_message(MTLChats.ITolstov, msg)

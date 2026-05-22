@@ -25,127 +25,28 @@ class WalletsRepository(BaseRepository):
     """Repository for wallet operations."""
 
     def get_wallet_by_id(self, wallet_id: int) -> Optional[WalletDTO]:
-        """Get wallet by ID."""
-        record = (
-            self.session.query(MyMtlWalletBot)
-            .filter(
-                MyMtlWalletBot.id == wallet_id,
-                MyMtlWalletBot.need_delete == 0,
-            )
-            .first()
-        )
-
-        if not record:
-            return None
-
-        return self._to_dto(record)
+        self._raise_sync_removed("get_wallet_by_id")
 
     def get_wallet_by_public_key(self, public_key: str) -> Optional[WalletDTO]:
-        """Get wallet by public key."""
-        record = (
-            self.session.query(MyMtlWalletBot)
-            .filter(
-                MyMtlWalletBot.public_key == public_key,
-                MyMtlWalletBot.need_delete == 0,
-            )
-            .first()
-        )
-
-        if not record:
-            return None
-
-        return self._to_dto(record)
+        self._raise_sync_removed("get_wallet_by_public_key")
 
     def get_wallets_by_user(self, user_id: int) -> list[WalletDTO]:
-        """Get all wallets for user."""
-        records = (
-            self.session.query(MyMtlWalletBot)
-            .filter(
-                MyMtlWalletBot.user_id == user_id,
-                MyMtlWalletBot.need_delete == 0,
-            )
-            .all()
-        )
-
-        return [self._to_dto(r) for r in records]
+        self._raise_sync_removed("get_wallets_by_user")
 
     def get_default_wallet(self, user_id: int) -> Optional[WalletDTO]:
-        """Get user's default wallet."""
-        record = (
-            self.session.query(MyMtlWalletBot)
-            .filter(
-                MyMtlWalletBot.user_id == user_id,
-                MyMtlWalletBot.default_wallet == 1,
-                MyMtlWalletBot.need_delete == 0,
-            )
-            .first()
-        )
-
-        if not record:
-            # Fall back to first wallet if no default set
-            record = (
-                self.session.query(MyMtlWalletBot)
-                .filter(
-                    MyMtlWalletBot.user_id == user_id,
-                    MyMtlWalletBot.need_delete == 0,
-                )
-                .first()
-            )
-
-        if not record:
-            return None
-
-        return self._to_dto(record)
+        self._raise_sync_removed("get_default_wallet")
 
     def set_default_wallet(self, user_id: int, wallet_id: int) -> bool:
-        """Set wallet as default for user."""
-        # Clear existing default
-        self.session.query(MyMtlWalletBot).filter(MyMtlWalletBot.user_id == user_id).update(
-            {MyMtlWalletBot.default_wallet: 0}, synchronize_session=False
-        )
-
-        # Set new default
-        count = (
-            self.session.query(MyMtlWalletBot)
-            .filter(
-                MyMtlWalletBot.id == wallet_id,
-                MyMtlWalletBot.user_id == user_id,
-            )
-            .update({MyMtlWalletBot.default_wallet: 1}, synchronize_session=False)
-        )
-
-        return count > 0
+        self._raise_sync_removed("set_default_wallet")
 
     def update_balances(self, public_key: str, balances: dict) -> bool:
-        """Update cached balances for wallet."""
-        balances_json = json.dumps(balances)
-
-        count = (
-            self.session.query(MyMtlWalletBot)
-            .filter(MyMtlWalletBot.public_key == public_key)
-            .update({MyMtlWalletBot.balances: balances_json}, synchronize_session=False)
-        )
-        return count > 0
+        self._raise_sync_removed("update_balances")
 
     def mark_for_deletion(self, wallet_id: int) -> bool:
-        """Mark wallet for deletion (soft delete)."""
-        count = (
-            self.session.query(MyMtlWalletBot)
-            .filter(MyMtlWalletBot.id == wallet_id)
-            .update({MyMtlWalletBot.need_delete: 1}, synchronize_session=False)
-        )
-        return count > 0
+        self._raise_sync_removed("mark_for_deletion")
 
     def count_user_wallets(self, user_id: int) -> int:
-        """Count active wallets for user."""
-        return (
-            self.session.query(MyMtlWalletBot)
-            .filter(
-                MyMtlWalletBot.user_id == user_id,
-                MyMtlWalletBot.need_delete == 0,
-            )
-            .count()
-        )
+        self._raise_sync_removed("count_user_wallets")
 
     def _to_dto(self, record: MyMtlWalletBot) -> WalletDTO:
         """Convert ORM record to DTO."""

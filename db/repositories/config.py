@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Union
 from sqlalchemy import select, delete, and_
 
 from db.repositories.base import BaseRepository
-from shared.infrastructure.database.models import BotConfig, KVStore, BotTable
+from shared.infrastructure.database.models import BotConfig, KVStore
 
 
 class ConfigRepository(BaseRepository):
@@ -18,26 +18,7 @@ class ConfigRepository(BaseRepository):
         return chat_key, None
 
     def save_bot_value(self, chat_id: int, chat_key: Union[int, Enum, str], chat_value: Any) -> None:
-        chat_key_value, chat_key_name = self._normalize_chat_key(chat_key)
-
-        if chat_value is None:
-            stmt = delete(BotConfig).where(and_(BotConfig.chat_id == chat_id, BotConfig.chat_key == chat_key_value))
-            self.session.execute(stmt)
-        else:
-            prepared_value = self._prepare_chat_value(chat_value)
-
-            existing_record = self.session.execute(
-                select(BotConfig).where(and_(BotConfig.chat_id == chat_id, BotConfig.chat_key == chat_key_value))
-            ).scalar_one_or_none()
-
-            if existing_record:
-                existing_record.chat_key_name = chat_key_name
-                existing_record.chat_value = prepared_value
-            else:
-                new_record = BotConfig(
-                    chat_id=chat_id, chat_key=chat_key_value, chat_key_name=chat_key_name, chat_value=prepared_value
-                )
-                self.session.add(new_record)
+        self._raise_sync_removed("save_bot_value")
 
     async def async_save_bot_value(self, chat_id: int, chat_key: Union[int, Enum, str], chat_value: Any) -> None:
         chat_key_value, chat_key_name = self._normalize_chat_key(chat_key)
@@ -64,13 +45,7 @@ class ConfigRepository(BaseRepository):
                 self.session.add(new_record)
 
     def load_bot_value(self, chat_id: int, chat_key: Union[int, Enum, str], default_value: Any = "") -> Any:
-        chat_key_value, _ = self._normalize_chat_key(chat_key)
-
-        record = self.session.execute(
-            select(BotConfig).where(and_(BotConfig.chat_id == chat_id, BotConfig.chat_key == chat_key_value))
-        ).scalar_one_or_none()
-
-        return self._unpack_bot_value(record, default_value)
+        self._raise_sync_removed("load_bot_value")
 
     async def async_load_bot_value(self, chat_id: int, chat_key: Union[int, Enum, str], default_value: Any = "") -> Any:
         chat_key_value, _ = self._normalize_chat_key(chat_key)
@@ -112,10 +87,7 @@ class ConfigRepository(BaseRepository):
         return default_value
 
     def get_chat_ids_by_key(self, chat_key: Union[int, Enum, str]) -> List[int]:
-        chat_key_value, _ = self._normalize_chat_key(chat_key)
-
-        result = self.session.execute(select(BotConfig.chat_id).where(BotConfig.chat_key == chat_key_value))
-        return [row[0] for row in result.fetchall()]
+        self._raise_sync_removed("get_chat_ids_by_key")
 
     async def async_get_chat_ids_by_key(self, chat_key: Union[int, Enum, str]) -> List[int]:
         chat_key_value, _ = self._normalize_chat_key(chat_key)
@@ -124,11 +96,7 @@ class ConfigRepository(BaseRepository):
         return [row[0] for row in result.fetchall()]
 
     def get_chat_dict_by_key(self, chat_key: Union[int, Enum, str], return_json: bool = False) -> Dict[int, Any]:
-        chat_key_value, _ = self._normalize_chat_key(chat_key)
-
-        records = self.session.execute(select(BotConfig).where(BotConfig.chat_key == chat_key_value)).scalars().all()
-
-        return self._records_to_chat_dict(records, return_json)
+        self._raise_sync_removed("get_chat_dict_by_key")
 
     async def async_get_chat_dict_by_key(
         self, chat_key: Union[int, Enum, str], return_json: bool = False
@@ -162,13 +130,7 @@ class ConfigRepository(BaseRepository):
         return result_dict
 
     def update_dict_value(self, chat_id: int, chat_key: Union[int, Enum, str], dict_key: str, dict_value: Any) -> None:
-        chat_key_value, _ = self._normalize_chat_key(chat_key)
-
-        record = self.session.execute(
-            select(BotConfig).where(and_(BotConfig.chat_id == chat_id, BotConfig.chat_key == chat_key_value))
-        ).scalar_one_or_none()
-
-        self._apply_dict_value(record, chat_id, chat_key_value, dict_key, dict_value)
+        self._raise_sync_removed("update_dict_value")
 
     async def async_update_dict_value(
         self, chat_id: int, chat_key: Union[int, Enum, str], dict_key: str, dict_value: Any
@@ -218,13 +180,7 @@ class ConfigRepository(BaseRepository):
     def get_dict_value(
         self, chat_id: int, chat_key: Union[int, Enum, str], dict_key: str, default_value: Any = None
     ) -> Any:
-        chat_key_value, _ = self._normalize_chat_key(chat_key)
-
-        record = self.session.execute(
-            select(BotConfig).where(and_(BotConfig.chat_id == chat_id, BotConfig.chat_key == chat_key_value))
-        ).scalar_one_or_none()
-
-        return self._unpack_dict_value(record, dict_key, default_value)
+        self._raise_sync_removed("get_dict_value")
 
     async def async_get_dict_value(
         self, chat_id: int, chat_key: Union[int, Enum, str], dict_key: str, default_value: Any = None
@@ -257,9 +213,7 @@ class ConfigRepository(BaseRepository):
         return default_value
 
     def save_kv_value(self, kv_key: str, kv_value: Any) -> None:
-        record = self.session.execute(select(KVStore).where(KVStore.kv_key == kv_key)).scalar_one_or_none()
-
-        self._apply_kv_value(record, kv_key, kv_value)
+        self._raise_sync_removed("save_kv_value")
 
     async def async_save_kv_value(self, kv_key: str, kv_value: Any) -> None:
         record = (await self.session.execute(select(KVStore).where(KVStore.kv_key == kv_key))).scalar_one_or_none()
@@ -274,8 +228,7 @@ class ConfigRepository(BaseRepository):
             self.session.add(new_record)
 
     def load_kv_value(self, kv_key: str, default_value: Any = None) -> Any:
-        record = self.session.execute(select(KVStore).where(KVStore.kv_key == kv_key)).scalar_one_or_none()
-        return record.kv_value if record else default_value
+        self._raise_sync_removed("load_kv_value")
 
     async def async_load_kv_value(self, kv_key: str, default_value: Any = None) -> Any:
         record = (await self.session.execute(select(KVStore).where(KVStore.kv_key == kv_key))).scalar_one_or_none()
@@ -283,31 +236,10 @@ class ConfigRepository(BaseRepository):
 
     # Legacy BotTable support
     def save_legacy_bot_value(self, chat_id: int, chat_key: Union[int, Enum, str], chat_value: Any) -> None:
-        chat_key_value = (
-            chat_key if isinstance(chat_key, int) else (chat_key.value if isinstance(chat_key, Enum) else chat_key)
-        )
-        record = self.session.execute(
-            select(BotTable).where(and_(BotTable.chat_id == chat_id, BotTable.chat_key == chat_key_value))
-        ).scalar_one_or_none()
-
-        if chat_value is None:
-            if record:
-                self.session.delete(record)
-        else:
-            if not record:
-                new_record = BotTable(chat_id=chat_id, chat_key=chat_key_value, chat_value=str(chat_value))
-                self.session.add(new_record)
-            else:
-                record.chat_value = str(chat_value)
+        self._raise_sync_removed("save_legacy_bot_value")
 
     def load_legacy_bot_value(self, chat_id: int, chat_key: Union[int, Enum, str], default_value: Any = "") -> Any:
-        chat_key_value = (
-            chat_key if isinstance(chat_key, int) else (chat_key.value if isinstance(chat_key, Enum) else chat_key)
-        )
-        record = self.session.execute(
-            select(BotTable.chat_value).where(and_(BotTable.chat_id == chat_id, BotTable.chat_key == chat_key_value))
-        ).scalar_one_or_none()
-        return record if record is not None else default_value
+        self._raise_sync_removed("load_legacy_bot_value")
 
     def _prepare_chat_value(self, value: Any) -> Any:
         if value is None:
