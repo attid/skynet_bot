@@ -1,47 +1,47 @@
 class ChatsRepositoryAdapter:
-    """SessionPool-backed adapter for SpamStatusService repository access."""
+    """AsyncSessionPool-backed adapter for chat repository access."""
 
-    def __init__(self, session_pool):
-        self._session_pool = session_pool
+    def __init__(self, async_session_pool):
+        self._async_session_pool = async_session_pool
 
-    def get_all_chats(self):
+    async def get_all_chats(self):
         from db.repositories import ChatsRepository
 
-        with self._session_pool() as session:
-            return ChatsRepository(session).get_all_chats()
+        async with self._async_session_pool() as session:
+            return await ChatsRepository(session).async_get_all_chats()
 
-    def add_user_to_chat(self, chat_id: int, member):
+    async def add_user_to_chat(self, chat_id: int, member):
         from db.repositories import ChatsRepository
 
-        with self._session_pool() as session:
-            result = ChatsRepository(session).add_user_to_chat(chat_id, member)
-            session.commit()
+        async with self._async_session_pool() as session:
+            result = await ChatsRepository(session).async_add_user_to_chat(chat_id, member)
+            await session.commit()
             return result
 
-    def remove_user_from_chat(self, chat_id: int, user_id: int):
+    async def remove_user_from_chat(self, chat_id: int, user_id: int):
         from db.repositories import ChatsRepository
 
-        with self._session_pool() as session:
-            result = ChatsRepository(session).remove_user_from_chat(chat_id, user_id)
-            session.commit()
+        async with self._async_session_pool() as session:
+            result = await ChatsRepository(session).async_remove_user_from_chat(chat_id, user_id)
+            await session.commit()
             return result
 
-    def get_user_id(self, username: str):
+    async def get_user_id(self, username: str):
         from db.repositories import ChatsRepository
 
-        with self._session_pool() as session:
-            return ChatsRepository(session).get_user_id(username)
+        async with self._async_session_pool() as session:
+            return await ChatsRepository(session).async_get_user_id(username)
 
-    def get_user_by_id(self, user_id: int):
+    async def get_user_by_id(self, user_id: int):
         from db.repositories import ChatsRepository
 
-        with self._session_pool() as session:
-            return ChatsRepository(session).get_user_by_id(user_id)
+        async with self._async_session_pool() as session:
+            return await ChatsRepository(session).async_get_user_by_id(user_id)
 
-    def save_user_type(self, user_id: int, user_type: int):
+    async def save_user_type(self, user_id: int, user_type: int):
         from db.repositories import ChatsRepository
 
-        with self._session_pool() as session:
-            ChatsRepository(session).save_user_type(user_id, user_type)
-            session.commit()
+        async with self._async_session_pool() as session:
+            await ChatsRepository(session).async_save_user_type(user_id, user_type)
+            await session.commit()
             return True

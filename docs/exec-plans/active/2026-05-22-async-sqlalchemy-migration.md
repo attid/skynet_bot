@@ -90,12 +90,13 @@
    - Сохранить имена методов только если все call sites переводятся на `await` одновременно; иначе добавить временные async-suffixed методы и мигрировать по слоям.
    - Тест: async repository tests на SQLite async или mocked AsyncSession.
 
-8. [ ] Шаг 8 — перевести service-layer wrappers.
-   - `services/database_service.py`: все методы с DB access сделать `async def` и использовать `async with`.
+8. [x] Шаг 8 — перевести service-layer wrappers.
+   - `services/database_service.py`: все методы с DB access используют `AsyncSessionPool` и `async with`.
    - `services/repositories/chats_repo_adapter.py`: methods become async, use `async with`, `await commit`.
-   - `services/spam_status_service.py`: await repository interface calls if adapter methods change.
-   - `services/app_context.py`: учитывать async adapter signatures.
-   - Тест: обновить `tests/db/test_database_service.py` и service tests.
+   - `services/spam_status_service.py`: repository is optional; runtime uses preloaded in-memory cache instead of sync fallback DB access.
+   - `services/app_context.py`: no longer wires sync `ChatsRepositoryAdapter(ctx.db_service.session_pool)`.
+   - `services/stellar_notification_service.py`: notification queue writes use async session and async `MessageRepository`.
+   - Тест: обновлены `tests/db/test_database_service.py` и service tests.
 
 9. [x] Шаг 9 — перевести hot path `routers/welcome.py`.
    - Type hints: `Session | AsyncSession`.

@@ -16,10 +16,36 @@ def _make_pool(session):
     return Pool()
 
 
+def _make_async_pool(session):
+    class Pool:
+        def __call__(self):
+            return self
+
+        async def __aenter__(self):
+            return session
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    return Pool()
+
+
+class FakeAsyncSession(FakeSession):
+    async def commit(self):
+        super().commit()
+
+    async def execute(self, statement, *args, **kwargs):
+        return super().execute(statement, *args, **kwargs)
+
+    async def flush(self):
+        super().flush()
+
+
 def test_save_bot_value_delegation(monkeypatch):
     service = DatabaseService()
-    session_instance = FakeSession()
+    session_instance = FakeAsyncSession()
     service.session_pool = _make_pool(session_instance)
+    service.async_session_pool = _make_async_pool(session_instance)
 
     calls = {}
 
@@ -27,7 +53,7 @@ def test_save_bot_value_delegation(monkeypatch):
         def __init__(self, session):
             calls["session"] = session
 
-        def save_bot_value(self, chat_id, key, value):
+        async def async_save_bot_value(self, chat_id, key, value):
             calls["save"] = (chat_id, key, value)
 
     monkeypatch.setattr("services.database_service.ConfigRepository", FakeConfigRepo)
@@ -47,8 +73,9 @@ def test_save_bot_value_delegation(monkeypatch):
 
 def test_load_bot_value_delegation(monkeypatch):
     service = DatabaseService()
-    session_instance = FakeSession()
+    session_instance = FakeAsyncSession()
     service.session_pool = _make_pool(session_instance)
+    service.async_session_pool = _make_async_pool(session_instance)
 
     expected_value = "loaded"
     calls = {}
@@ -57,7 +84,7 @@ def test_load_bot_value_delegation(monkeypatch):
         def __init__(self, session):
             calls["session"] = session
 
-        def load_bot_value(self, chat_id, key, default):
+        async def async_load_bot_value(self, chat_id, key, default):
             calls["load"] = (chat_id, key, default)
             return expected_value
 
@@ -73,8 +100,9 @@ def test_load_bot_value_delegation(monkeypatch):
 
 def test_update_chat_info_delegation(monkeypatch):
     service = DatabaseService()
-    session_instance = FakeSession()
+    session_instance = FakeAsyncSession()
     service.session_pool = _make_pool(session_instance)
+    service.async_session_pool = _make_async_pool(session_instance)
 
     calls = {}
 
@@ -82,7 +110,7 @@ def test_update_chat_info_delegation(monkeypatch):
         def __init__(self, session):
             calls["session"] = session
 
-        def update_chat_info(self, chat_id, members, clear_users=False):
+        async def async_update_chat_info(self, chat_id, members, clear_users=False):
             calls["update"] = (chat_id, members, clear_users)
 
     monkeypatch.setattr("services.database_service.ChatsRepository", FakeChatsRepo)

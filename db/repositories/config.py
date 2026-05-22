@@ -112,20 +112,36 @@ class ConfigRepository(BaseRepository):
         return default_value
 
     def get_chat_ids_by_key(self, chat_key: Union[int, Enum, str]) -> List[int]:
-        chat_key_value = (
-            chat_key if isinstance(chat_key, int) else (chat_key.value if isinstance(chat_key, Enum) else chat_key)
-        )
+        chat_key_value, _ = self._normalize_chat_key(chat_key)
 
         result = self.session.execute(select(BotConfig.chat_id).where(BotConfig.chat_key == chat_key_value))
         return [row[0] for row in result.fetchall()]
 
+    async def async_get_chat_ids_by_key(self, chat_key: Union[int, Enum, str]) -> List[int]:
+        chat_key_value, _ = self._normalize_chat_key(chat_key)
+
+        result = await self.session.execute(select(BotConfig.chat_id).where(BotConfig.chat_key == chat_key_value))
+        return [row[0] for row in result.fetchall()]
+
     def get_chat_dict_by_key(self, chat_key: Union[int, Enum, str], return_json: bool = False) -> Dict[int, Any]:
-        chat_key_value = (
-            chat_key if isinstance(chat_key, int) else (chat_key.value if isinstance(chat_key, Enum) else chat_key)
-        )
+        chat_key_value, _ = self._normalize_chat_key(chat_key)
 
         records = self.session.execute(select(BotConfig).where(BotConfig.chat_key == chat_key_value)).scalars().all()
 
+        return self._records_to_chat_dict(records, return_json)
+
+    async def async_get_chat_dict_by_key(
+        self, chat_key: Union[int, Enum, str], return_json: bool = False
+    ) -> Dict[int, Any]:
+        chat_key_value, _ = self._normalize_chat_key(chat_key)
+
+        records = (
+            (await self.session.execute(select(BotConfig).where(BotConfig.chat_key == chat_key_value))).scalars().all()
+        )
+
+        return self._records_to_chat_dict(records, return_json)
+
+    def _records_to_chat_dict(self, records: Any, return_json: bool = False) -> Dict[int, Any]:
         result_dict = {}
         for record in records:
             if record.chat_value is not None:
@@ -146,14 +162,30 @@ class ConfigRepository(BaseRepository):
         return result_dict
 
     def update_dict_value(self, chat_id: int, chat_key: Union[int, Enum, str], dict_key: str, dict_value: Any) -> None:
-        chat_key_value = (
-            chat_key if isinstance(chat_key, int) else (chat_key.value if isinstance(chat_key, Enum) else chat_key)
-        )
+        chat_key_value, _ = self._normalize_chat_key(chat_key)
 
         record = self.session.execute(
             select(BotConfig).where(and_(BotConfig.chat_id == chat_id, BotConfig.chat_key == chat_key_value))
         ).scalar_one_or_none()
 
+        self._apply_dict_value(record, chat_id, chat_key_value, dict_key, dict_value)
+
+    async def async_update_dict_value(
+        self, chat_id: int, chat_key: Union[int, Enum, str], dict_key: str, dict_value: Any
+    ) -> None:
+        chat_key_value, _ = self._normalize_chat_key(chat_key)
+
+        record = (
+            await self.session.execute(
+                select(BotConfig).where(and_(BotConfig.chat_id == chat_id, BotConfig.chat_key == chat_key_value))
+            )
+        ).scalar_one_or_none()
+
+        self._apply_dict_value(record, chat_id, chat_key_value, dict_key, dict_value)
+
+    def _apply_dict_value(
+        self, record: Any, chat_id: int, chat_key_value: Union[int, str], dict_key: str, dict_value: Any
+    ) -> None:
         if record:
             if record.chat_value is None:
                 record.chat_value = {}
@@ -186,14 +218,28 @@ class ConfigRepository(BaseRepository):
     def get_dict_value(
         self, chat_id: int, chat_key: Union[int, Enum, str], dict_key: str, default_value: Any = None
     ) -> Any:
-        chat_key_value = (
-            chat_key if isinstance(chat_key, int) else (chat_key.value if isinstance(chat_key, Enum) else chat_key)
-        )
+        chat_key_value, _ = self._normalize_chat_key(chat_key)
 
         record = self.session.execute(
             select(BotConfig).where(and_(BotConfig.chat_id == chat_id, BotConfig.chat_key == chat_key_value))
         ).scalar_one_or_none()
 
+        return self._unpack_dict_value(record, dict_key, default_value)
+
+    async def async_get_dict_value(
+        self, chat_id: int, chat_key: Union[int, Enum, str], dict_key: str, default_value: Any = None
+    ) -> Any:
+        chat_key_value, _ = self._normalize_chat_key(chat_key)
+
+        record = (
+            await self.session.execute(
+                select(BotConfig).where(and_(BotConfig.chat_id == chat_id, BotConfig.chat_key == chat_key_value))
+            )
+        ).scalar_one_or_none()
+
+        return self._unpack_dict_value(record, dict_key, default_value)
+
+    def _unpack_dict_value(self, record: Any, dict_key: str, default_value: Any = None) -> Any:
         if record and record.chat_value is not None:
             chat_data = record.chat_value
             if isinstance(chat_data, str):
@@ -213,6 +259,14 @@ class ConfigRepository(BaseRepository):
     def save_kv_value(self, kv_key: str, kv_value: Any) -> None:
         record = self.session.execute(select(KVStore).where(KVStore.kv_key == kv_key)).scalar_one_or_none()
 
+        self._apply_kv_value(record, kv_key, kv_value)
+
+    async def async_save_kv_value(self, kv_key: str, kv_value: Any) -> None:
+        record = (await self.session.execute(select(KVStore).where(KVStore.kv_key == kv_key))).scalar_one_or_none()
+
+        self._apply_kv_value(record, kv_key, kv_value)
+
+    def _apply_kv_value(self, record: Any, kv_key: str, kv_value: Any) -> None:
         if record:
             record.kv_value = kv_value
         else:
@@ -221,6 +275,10 @@ class ConfigRepository(BaseRepository):
 
     def load_kv_value(self, kv_key: str, default_value: Any = None) -> Any:
         record = self.session.execute(select(KVStore).where(KVStore.kv_key == kv_key)).scalar_one_or_none()
+        return record.kv_value if record else default_value
+
+    async def async_load_kv_value(self, kv_key: str, default_value: Any = None) -> Any:
+        record = (await self.session.execute(select(KVStore).where(KVStore.kv_key == kv_key))).scalar_one_or_none()
         return record.kv_value if record else default_value
 
     # Legacy BotTable support

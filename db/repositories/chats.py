@@ -96,6 +96,62 @@ class ChatsRepository(BaseRepository):
         # But for now, let's assume the calling code (Session context) will commit.
         return True
 
+    async def async_update_chat_info(self, chat_id: int, members: List[GroupMember], clear_users: bool = False) -> bool:
+        now = datetime.now(UTC)
+
+        result = await self.session.execute(select(Chat).where(Chat.chat_id == chat_id))
+        chat = result.scalar_one_or_none()
+
+        if not chat:
+            chat = Chat(chat_id=chat_id, created_at=now, last_updated=now, admins=[], metadata_={})
+            self.session.add(chat)
+            await self.session.flush()
+
+        if clear_users:
+            await self.session.execute(delete(ChatMember).where(ChatMember.chat_id == chat_id))
+            chat.admins = []
+
+        chat.last_updated = now
+
+        if chat.admins is None:
+            chat.admins = []
+
+        admin_ids = set(chat.admins)
+
+        for member in members:
+            user_result = await self.session.execute(select(BotUsers).where(BotUsers.user_id == member.user_id))
+            user_record = user_result.scalar_one_or_none()
+
+            if not user_record:
+                new_user = BotUsers(user_id=member.user_id, user_name=member.username, user_type=0)
+                self.session.add(new_user)
+
+            existing_member = (
+                await self.session.execute(
+                    select(ChatMember).where(and_(ChatMember.chat_id == chat_id, ChatMember.user_id == member.user_id))
+                )
+            ).scalar_one_or_none()
+
+            member_metadata = {"username": member.username, "full_name": member.full_name, "is_admin": member.is_admin}
+
+            if existing_member:
+                existing_member.metadata_ = member_metadata
+                if existing_member.left_at:
+                    existing_member.left_at = None
+            else:
+                new_member = ChatMember(
+                    chat_id=chat_id, user_id=member.user_id, created_at=now, metadata_=member_metadata
+                )
+                self.session.add(new_member)
+
+            if member.is_admin:
+                admin_ids.add(member.user_id)
+            else:
+                admin_ids.discard(member.user_id)
+
+        chat.admins = list(admin_ids)
+        return True
+
     def add_user_to_chat(self, chat_id: int, member: GroupMember) -> bool:
         now = datetime.now(UTC)
 
@@ -258,6 +314,17 @@ class ChatsRepository(BaseRepository):
         result = self.session.execute(select(ChatMember).where(and_(ChatMember.chat_id == chat_id, filter_condition)))
         members = result.scalars().all()
 
+        return self._members_to_user_dtos(members)
+
+    async def _async_get_users_by_filter(self, chat_id: int, filter_condition) -> List[ChatUserDTO]:
+        result = await self.session.execute(
+            select(ChatMember).where(and_(ChatMember.chat_id == chat_id, filter_condition))
+        )
+        members = result.scalars().all()
+
+        return self._members_to_user_dtos(members)
+
+    def _members_to_user_dtos(self, members) -> List[ChatUserDTO]:
         dtos = []
         for member in members:
             metadata = member.metadata_ or {}
@@ -272,6 +339,14 @@ class ChatsRepository(BaseRepository):
             dtos.append(dto)
         return dtos
 
+    async def async_get_users_joined_last_day(self, chat_id: int) -> List[ChatUserDTO]:
+        one_day_ago = datetime.now() - timedelta(days=1)
+        return await self._async_get_users_by_filter(chat_id, ChatMember.created_at > one_day_ago)
+
+    async def async_get_users_left_last_day(self, chat_id: int) -> List[ChatUserDTO]:
+        one_day_ago = datetime.now() - timedelta(days=1)
+        return await self._async_get_users_by_filter(chat_id, ChatMember.left_at > one_day_ago)
+
     def get_all_chats(self) -> List[ChatDTO]:
         result = self.session.execute(select(Chat))
         chats = result.scalars().all()
@@ -279,6 +354,39 @@ class ChatsRepository(BaseRepository):
         chat_dtos = []
         for chat in chats:
             members_result = self.session.execute(select(ChatMember).where(ChatMember.chat_id == chat.chat_id))
+            members = members_result.scalars().all()
+
+            users_dict = {}
+            for member in members:
+                metadata = member.metadata_ or {}
+                users_dict[str(member.user_id)] = ChatUserDTO(
+                    user_id=member.user_id,
+                    username=metadata.get("username"),
+                    full_name=metadata.get("full_name"),
+                    is_admin=metadata.get("is_admin", False),
+                    created_at=member.created_at,
+                    left_at=member.left_at,
+                )
+
+            chat_dto = ChatDTO(
+                chat_id=chat.chat_id,
+                username=chat.username,
+                title=chat.title,
+                created_at=chat.created_at,
+                last_updated=chat.last_updated,
+                users=users_dict,
+                admins=chat.admins or [],
+            )
+            chat_dtos.append(chat_dto)
+        return chat_dtos
+
+    async def async_get_all_chats(self) -> List[ChatDTO]:
+        result = await self.session.execute(select(Chat))
+        chats = result.scalars().all()
+
+        chat_dtos = []
+        for chat in chats:
+            members_result = await self.session.execute(select(ChatMember).where(ChatMember.chat_id == chat.chat_id))
             members = members_result.scalars().all()
 
             users_dict = {}
@@ -339,10 +447,53 @@ class ChatsRepository(BaseRepository):
                 chat_dtos.append(chat_dto)
         return chat_dtos
 
+    async def async_get_all_chats_by_user(self, user_id: int) -> List[ChatDTO]:
+        result = await self.session.execute(select(ChatMember).where(ChatMember.user_id == user_id))
+        memberships = result.scalars().all()
+
+        chat_dtos = []
+        for membership in memberships:
+            chat_result = await self.session.execute(select(Chat).where(Chat.chat_id == membership.chat_id))
+            chat = chat_result.scalar_one_or_none()
+
+            if chat:
+                metadata = membership.metadata_ or {}
+                users_dict = {
+                    str(membership.user_id): ChatUserDTO(
+                        user_id=membership.user_id,
+                        username=metadata.get("username"),
+                        full_name=metadata.get("full_name"),
+                        is_admin=metadata.get("is_admin", False),
+                        created_at=membership.created_at,
+                        left_at=membership.left_at,
+                    )
+                }
+
+                chat_dto = ChatDTO(
+                    chat_id=chat.chat_id,
+                    username=chat.username,
+                    title=chat.title,
+                    created_at=chat.created_at,
+                    last_updated=chat.last_updated,
+                    users=users_dict,
+                    admins=chat.admins or [],
+                )
+                chat_dtos.append(chat_dto)
+        return chat_dtos
+
     def update_chat_with_dict(self, chat_id: int, update_data: Dict) -> bool:
         result = self.session.execute(select(Chat).where(Chat.chat_id == chat_id))
         chat = result.scalar_one_or_none()
 
+        return self._apply_chat_update(chat, update_data)
+
+    async def async_update_chat_with_dict(self, chat_id: int, update_data: Dict) -> bool:
+        result = await self.session.execute(select(Chat).where(Chat.chat_id == chat_id))
+        chat = result.scalar_one_or_none()
+
+        return self._apply_chat_update(chat, update_data)
+
+    def _apply_chat_update(self, chat, update_data: Dict) -> bool:
         if not chat:
             return False
 
@@ -400,6 +551,21 @@ class ChatsRepository(BaseRepository):
             except ValueError:
                 raise ValueError("Invalid user ID or username format. Use a numeric ID or @username.")
 
+    async def async_get_user_id(self, user_name: str) -> int:
+        if user_name.startswith("@"):
+            username = user_name[1:]
+            result = (
+                await self.session.execute(select(BotUsers.user_id).where(BotUsers.user_name == username).limit(1))
+            ).scalar_one_or_none()
+            if not result:
+                raise ValueError(f"User @{username} not found in the database.")
+            return result
+        else:
+            try:
+                return int(user_name)
+            except ValueError:
+                raise ValueError("Invalid user ID or username format. Use a numeric ID or @username.")
+
     def load_bot_users(self) -> List[BotUsers]:
         result = self.session.execute(select(BotUsers))
         return result.scalars().all()
@@ -438,15 +604,41 @@ class ChatsRepository(BaseRepository):
             new_user = BotUsers(user_id=user_id, user_name=None, user_type=user_type)
             self.session.add(new_user)
 
+    async def async_save_user_type(self, user_id: int, user_type: int) -> None:
+        """Update user type."""
+        user = await self.async_get_user_by_id(user_id)
+        if user:
+            user.user_type = user_type
+        else:
+            new_user = BotUsers(user_id=user_id, user_name=None, user_type=user_type)
+            self.session.add(new_user)
+
     def get_chat_by_id(self, chat_id: int) -> Optional[Chat]:
         """Get chat record from database."""
         result = self.session.execute(select(Chat).where(Chat.chat_id == chat_id))
+        return result.scalar_one_or_none()
+
+    async def async_get_chat_by_id(self, chat_id: int) -> Optional[Chat]:
+        """Get chat record from database."""
+        result = await self.session.execute(select(Chat).where(Chat.chat_id == chat_id))
         return result.scalar_one_or_none()
 
     def upsert_chat_info(self, chat_id: int, title: Optional[str], username: Optional[str]) -> None:
         """Create or update chat with title and username."""
         now = datetime.now(UTC)
         chat = self.get_chat_by_id(chat_id)
+        if chat:
+            chat.title = title
+            chat.username = username
+            chat.last_updated = now
+        else:
+            chat = Chat(chat_id=chat_id, title=title, username=username, created_at=now, last_updated=now)
+            self.session.add(chat)
+
+    async def async_upsert_chat_info(self, chat_id: int, title: Optional[str], username: Optional[str]) -> None:
+        """Create or update chat with title and username."""
+        now = datetime.now(UTC)
+        chat = await self.async_get_chat_by_id(chat_id)
         if chat:
             chat.title = title
             chat.username = username

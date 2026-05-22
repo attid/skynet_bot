@@ -441,10 +441,10 @@ class StellarNotificationService:
         from db.repositories import MessageRepository
 
         try:
-            with self.session_pool() as session:
+            async with self.session_pool() as session:
                 repo = MessageRepository(session)
-                repo.add_message(chat_id, message, topic_id=topic_id or 0)
-                session.commit()
+                await repo.async_add_message(chat_id, message, topic_id=topic_id or 0)
+                await session.commit()
                 logger.debug(f"Queued notification for chat {chat_id}")
         except Exception as e:
             logger.exception(f"Failed to queue notification: {e}")

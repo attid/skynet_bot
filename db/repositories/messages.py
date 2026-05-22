@@ -36,6 +36,24 @@ class MessageRepository(BaseRepository):
         # Since I am replacing db/requests.py which did commit, I should check if I am wrapping this.
         # For now, I'll add methods.
 
+    async def async_add_message(
+        self,
+        user_id: int,
+        text: str,
+        use_alarm: int = 0,
+        update_id: int = None,
+        button_json: str = None,
+        topic_id: int = 0,
+    ) -> None:
+        self.add_message(
+            user_id=user_id,
+            text=text,
+            use_alarm=use_alarm,
+            update_id=update_id,
+            button_json=button_json,
+            topic_id=topic_id,
+        )
+
     def load_new_messages(self, limit: int = 10) -> List[TMessage]:
         result = self.session.execute(select(TMessage).where(TMessage.was_send == 0).limit(limit))
         return cast(List[TMessage], result.scalars().all())

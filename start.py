@@ -237,7 +237,7 @@ async def main():
     _health_runner = await start_health_server(app_context_middleware.app_context.bot_state_service)
 
     # Initialize and start Stellar notification service
-    app_context_middleware.app_context.init_stellar_notification_service(bot, db_pool)
+    app_context_middleware.app_context.init_stellar_notification_service(bot, AsyncSessionPool)
     stellar_service = app_context_middleware.app_context.stellar_notification_service
     if stellar_service:
         await stellar_service.start_server()

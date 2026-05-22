@@ -34,9 +34,9 @@ def mock_bot():
 def mock_session_pool():
     """Create a mock session pool."""
     mock_session = Mock()
-    mock_session.__enter__ = Mock(return_value=mock_session)
-    mock_session.__exit__ = Mock(return_value=None)
-    mock_session.commit = Mock()
+    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_session.__aexit__ = AsyncMock(return_value=None)
+    mock_session.commit = AsyncMock()
 
     pool = Mock(return_value=mock_session)
     return pool

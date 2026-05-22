@@ -23,7 +23,6 @@ from services.voting_service import VotingService
 from services.admin_service import AdminManagementService
 from services.command_registry_service import CommandRegistryService
 from services.database_service import DatabaseService
-from services.repositories.chats_repo_adapter import ChatsRepositoryAdapter
 from services.channel_link_service import ChannelLinkService
 from services.selfmod_service import SelfmodService
 from services.stellar_notification_service import StellarNotificationService
@@ -127,7 +126,7 @@ class AppContext:
         ctx.notification_service = NotificationService()
         ctx.command_registry = CommandRegistryService()
         ctx.db_service = DatabaseService()
-        ctx.spam_status_service = SpamStatusService(ChatsRepositoryAdapter(ctx.db_service.session_pool))
+        ctx.spam_status_service = SpamStatusService()
         ctx.channel_link_service = ChannelLinkService()
         ctx.selfmod_service = SelfmodService(ctx.db_service)
         # stellar_notification_service is initialized later in start.py

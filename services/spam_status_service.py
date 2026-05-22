@@ -16,7 +16,7 @@ class SpamStatusService:
     0 = new, 1 = good, 2 = bad.
     """
 
-    def __init__(self, chats_repo: IChatsRepository):
+    def __init__(self, chats_repo: IChatsRepository | None = None):
         self._repo = chats_repo
         self._cache: dict[int, SpamStatus] = {}
         self._name_cache: dict[str, str] = {}
@@ -28,7 +28,7 @@ class SpamStatusService:
             if user_id in self._cache:
                 return self._cache[user_id]
 
-        user_record = self._repo.get_user_by_id(user_id)
+        user_record = self._repo.get_user_by_id(user_id) if self._repo else None
         if user_record:
             status_value = getattr(user_record, "user_type", SpamStatus.NEW.value)
         else:
@@ -52,7 +52,8 @@ class SpamStatusService:
         """Update spam status in cache and database."""
         with self._lock:
             self._cache[user_id] = status
-        self._repo.save_user_type(user_id, status.value)
+        if self._repo:
+            self._repo.save_user_type(user_id, status.value)
 
     def is_good(self, user_id: int) -> bool:
         """Check if user is good."""
