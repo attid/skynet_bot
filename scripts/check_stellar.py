@@ -217,9 +217,9 @@ if __name__ == "__main__":
     #
     # if 'check_transaction' in sys.argv:
     #     # pass
-    #     asyncio.run(cmd_check_cron_transaction(SessionPool))
+    #     asyncio.run(cmd_check_cron_transaction(AsyncSessionPool))
     # elif 'check_bot' in sys.argv:
-    #     asyncio.run(cmd_check_bot(SessionPool))
+    #     asyncio.run(cmd_check_bot(AsyncSessionPool))
     # elif 'check_grist' in sys.argv:
     #     pass
     #     asyncio.run(cmd_check_grist())

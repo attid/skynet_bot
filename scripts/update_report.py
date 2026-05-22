@@ -835,20 +835,28 @@ async def update_fest(session: Session):
 
 
 async def main_report():
-    from db.session import SessionPool
+    from db.session import AsyncSessionPool
 
     logger.add("logs/update_report.log", rotation="1 MB")
 
-    await update_main_report(SessionPool())
+    async with AsyncSessionPool() as session:
+        await update_main_report(session)
+        await session.commit()
     await update_guarantors_report()
-    # await update_bim_data(SessionPool())
-    await update_top_holders_report(SessionPool())
-    await update_mmwb_report(SessionPool())
+    # async with AsyncSessionPool() as session:
+    #     await update_bim_data(session)
+    async with AsyncSessionPool() as session:
+        await update_top_holders_report(session)
+        await session.commit()
+    async with AsyncSessionPool() as session:
+        await update_mmwb_report(session)
+        await session.commit()
     await update_donates_new()
-    # await update_wallet_report(SessionPool())
-    # await update_wallet_report2(SessionPool())
-    # await update_export(SessionPool())
-    # await update_fire(SessionPool())
+    # async with AsyncSessionPool() as session:
+    #     await update_wallet_report(session)
+    #     await update_wallet_report2(session)
+    #     await update_export(session)
+    #     await update_fire(session)
 
 
 @safe_catch_async
@@ -868,11 +876,13 @@ async def lite_report(session_pool):
 
 
 async def test_report():
-    from db.session import SessionPool
+    from db.session import AsyncSessionPool
 
     logger.add("logs/update_report.log", rotation="1 MB")
 
-    await check_eurmtl_b13_negative(SessionPool())
+    async with AsyncSessionPool() as session:
+        await check_eurmtl_b13_negative(session)
+        await session.commit()
 
 
 if __name__ == "__main__":

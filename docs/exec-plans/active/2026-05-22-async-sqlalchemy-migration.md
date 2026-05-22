@@ -56,7 +56,7 @@
    - Создать `AsyncSessionPool = async_sessionmaker(async_engine, expire_on_commit=False)`.
    - На первом этапе оставить legacy `engine`/`SessionPool`, чтобы не переключать runtime до миграции repositories/call sites.
    - Предоставить `create_async_session()` для standalone async code.
-   - Временно оставить sync aliases только если не вся миграция делается одним PR; иначе удалить sync `SessionPool`.
+   - Sync aliases removed after runtime scheduler migration; `db.session` now exports only async engine/session helpers.
    - Тест: импорт `db.session` и проверка типа factory без подключения.
 
 5. [x] Шаг 5 — подготовить `DbSessionMiddleware` к async sessions.
