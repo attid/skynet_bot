@@ -21,9 +21,11 @@ from aiogram.types import (
 from loguru import logger
 from redis.asyncio import Redis
 from sqlalchemy import create_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session, sessionmaker
 
 # Local application imports
+from db.session import AsyncSessionPool, async_engine
 from db.repositories import ChatsRepository
 from middlewares.db import DbSessionMiddleware
 from middlewares.emoji_reaction import EmojiReactionMiddleware
@@ -111,6 +113,8 @@ async def on_shutdown(bot: Bot):
     for task in global_tasks:
         task.cancel()
 
+    await async_engine.dispose()
+
 
 async def load_routers(dp: Dispatcher, bot: Bot):
     """Динамическая загрузка и регистрация роутеров"""
@@ -189,9 +193,9 @@ async def main():
     # Настройка middleware
     app_context_middleware = AppContextMiddleware(bot)
     dp.message.middleware(DbSessionMiddleware(db_pool))
-    dp.callback_query.middleware(DbSessionMiddleware(db_pool))
+    dp.callback_query.middleware(DbSessionMiddleware(db_pool, lazy=True))
     dp.inline_query.middleware(DbSessionMiddleware(db_pool))
-    dp.chat_member.middleware(DbSessionMiddleware(db_pool))
+    dp.chat_member.middleware(DbSessionMiddleware(AsyncSessionPool))
     dp.channel_post.middleware(DbSessionMiddleware(db_pool))
     dp.edited_channel_post.middleware(DbSessionMiddleware(db_pool))
     dp.poll_answer.middleware(DbSessionMiddleware(db_pool))
@@ -227,7 +231,7 @@ async def main():
 
     app_context_module.app_context = app_context_middleware.app_context
 
-    global_tasks.append(asyncio.create_task(load_globals(db_pool(), bot, app_context_middleware.app_context)))
+    global_tasks.append(asyncio.create_task(load_globals(AsyncSessionPool, bot, app_context_middleware.app_context)))
 
     # Start health server for Docker healthcheck
     _health_runner = await start_health_server(app_context_middleware.app_context.bot_state_service)
@@ -264,8 +268,9 @@ async def main():
     await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
 
 
-async def load_globals(session: Session, bot: Bot, app_context):
-    users = ChatsRepository(session).load_bot_users()
+async def load_globals(session_pool, bot: Bot, app_context):
+    async with session_pool() as session:
+        users = await ChatsRepository(session).async_load_bot_users()
     if app_context and app_context.spam_status_service:
         try:
             app_context.spam_status_service.preload_statuses({user.user_id: user.user_type for user in users})
@@ -285,6 +290,18 @@ def add_bot_users(session: Session, user_id: int, username: str | None, new_user
     except Exception as e:
         logger.warning(f"spam_status_service cache update failed: {e}")
     ChatsRepository(session).save_bot_user(user_id, username, new_user_type)
+
+
+async def async_add_bot_users(session: AsyncSession, user_id: int, username: str | None, new_user_type: int = 0):
+    """Add or update bot user using async SQLAlchemy session."""
+    try:
+        from services import app_context as app_context_module
+
+        if app_context_module.app_context and app_context_module.app_context.spam_status_service:
+            app_context_module.app_context.spam_status_service.preload_statuses({user_id: new_user_type})
+    except Exception as e:
+        logger.warning(f"spam_status_service cache update failed: {e}")
+    await ChatsRepository(session).async_save_bot_user(user_id, username, new_user_type)
 
 
 if __name__ == "__main__":

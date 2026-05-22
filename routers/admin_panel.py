@@ -128,6 +128,19 @@ def unmark_chat_accessible(chat_id: int, session: Session | None = None) -> None
             logger.error(f"Failed to save inaccessible chats: {e}")
 
 
+async def async_unmark_chat_accessible(chat_id: int, session) -> None:
+    """Remove chat from inaccessible list and save it using async DB session."""
+    if chat_id not in _inaccessible_chats:
+        return
+    _inaccessible_chats.discard(chat_id)
+    try:
+        await ConfigRepository(session).async_save_bot_value(
+            0, BotValueTypes.Inaccessible, json.dumps(list(_inaccessible_chats))
+        )
+    except Exception as e:
+        logger.error(f"Failed to save inaccessible chats: {e}")
+
+
 def load_inaccessible_chats(chat_ids: list[int]) -> None:
     """Load inaccessible chats from DB (called at startup)."""
     _inaccessible_chats.clear()

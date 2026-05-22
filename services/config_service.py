@@ -165,12 +165,12 @@ class ConfigService:
             self._welcome_messages.update(data)
 
     # Welcome button methods
-    def get_welcome_button(self, chat_id: int) -> Optional[dict]:
+    def get_welcome_button(self, chat_id: int) -> Optional[Any]:
         """Get welcome button config for chat."""
         with self._lock:
             return self._welcome_buttons.get(chat_id)
 
-    def set_welcome_button(self, chat_id: int, button: dict, session: Session | None = None) -> None:
+    def set_welcome_button(self, chat_id: int, button: Any, session: Session | None = None) -> None:
         """Set welcome button config for chat. Saves to DB if session provided."""
         with self._lock:
             self._welcome_buttons[chat_id] = button

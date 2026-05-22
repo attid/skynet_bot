@@ -8,6 +8,16 @@ dotenv_path = os.path.join(start_path, ".env")
 default_secrets_path = "/run/secrets"
 
 
+def to_asyncpg_url(url: str) -> str:
+    if url.startswith("postgresql+asyncpg://"):
+        return url
+    if url.startswith("postgresql+psycopg2://"):
+        return "postgresql+asyncpg://" + url.removeprefix("postgresql+psycopg2://")
+    if url.startswith("postgresql://"):
+        return "postgresql+asyncpg://" + url.removeprefix("postgresql://")
+    return url
+
+
 def get_secrets_dir() -> str | None:
     if os.path.isdir(default_secrets_path):
         return default_secrets_path
@@ -40,6 +50,10 @@ class Settings(BaseSettings):
     grist_token: str
     miniapps_key: str | None = None
     test_mode: bool = True
+
+    @property
+    def async_postgres_url(self) -> str:
+        return to_asyncpg_url(self.postgres_url)
 
     # Stellar Notifier webhook settings
     notifier_url: str | None = None  # http://operations-notifier:8000

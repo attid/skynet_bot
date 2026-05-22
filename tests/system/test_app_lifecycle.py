@@ -9,6 +9,22 @@ from tests.conftest import TEST_BOT_TOKEN
 from other.config_reader import config
 
 
+class FakeBot:
+    def __init__(self):
+        self.sent_messages = []
+
+    async def send_message(self, chat_id, text):
+        self.sent_messages.append((chat_id, text))
+
+
+class FakeAsyncEngine:
+    def __init__(self):
+        self.disposed = False
+
+    async def dispose(self):
+        self.disposed = True
+
+
 @pytest.mark.asyncio
 async def test_startup_sends_message_to_admin(mock_telegram, dp, monkeypatch):
     """
@@ -42,3 +58,15 @@ async def test_startup_sends_message_to_admin(mock_telegram, dp, monkeypatch):
     assert str(msg_req["data"]["chat_id"]) == str(MTLChats.ITolstov)
 
     await bot.session.close()
+
+
+@pytest.mark.asyncio
+async def test_shutdown_disposes_async_engine(monkeypatch):
+    import start
+
+    engine = FakeAsyncEngine()
+    monkeypatch.setattr(start, "async_engine", engine)
+
+    await start.on_shutdown(FakeBot())
+
+    assert engine.disposed is True

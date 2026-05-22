@@ -141,6 +141,52 @@ class ChatsRepository(BaseRepository):
 
         return True
 
+    async def async_add_user_to_chat(self, chat_id: int, member: GroupMember) -> bool:
+        now = datetime.now(UTC)
+
+        result = await self.session.execute(select(Chat).where(Chat.chat_id == chat_id))
+        chat = result.scalar_one_or_none()
+
+        if not chat:
+            chat = Chat(chat_id=chat_id, created_at=now, last_updated=now, admins=[], metadata_={})
+            self.session.add(chat)
+            await self.session.flush()
+
+        chat.last_updated = now
+
+        user_result = await self.session.execute(select(BotUsers).where(BotUsers.user_id == member.user_id))
+        user_record = user_result.scalar_one_or_none()
+
+        if not user_record:
+            new_user = BotUsers(user_id=member.user_id, user_name=member.username, user_type=0)
+            self.session.add(new_user)
+
+        existing_member = (
+            await self.session.execute(
+                select(ChatMember).where(and_(ChatMember.chat_id == chat_id, ChatMember.user_id == member.user_id))
+            )
+        ).scalar_one_or_none()
+
+        member_metadata = {"username": member.username, "full_name": member.full_name, "is_admin": member.is_admin}
+
+        if existing_member:
+            existing_member.metadata_ = member_metadata
+            if existing_member.left_at:
+                existing_member.left_at = None
+        else:
+            new_member = ChatMember(chat_id=chat_id, user_id=member.user_id, created_at=now, metadata_=member_metadata)
+            self.session.add(new_member)
+
+        if member.is_admin:
+            if chat.admins is None:
+                chat.admins = []
+            if member.user_id not in chat.admins:
+                admins = list(chat.admins)
+                admins.append(member.user_id)
+                chat.admins = admins
+
+        return True
+
     def remove_user_from_chat(self, chat_id: int, user_id: int) -> bool:
         result = self.session.execute(select(Chat).where(Chat.chat_id == chat_id))
         chat = result.scalar_one_or_none()
@@ -158,6 +204,35 @@ class ChatsRepository(BaseRepository):
             member_record.left_at = now
             if member_record.metadata_:
                 # Make copy to update JSON
+                new_meta = dict(member_record.metadata_)
+                new_meta["left_at"] = now.isoformat()
+                member_record.metadata_ = new_meta
+
+        if chat.admins and user_id in chat.admins:
+            admins = list(chat.admins)
+            if user_id in admins:
+                admins.remove(user_id)
+                chat.admins = admins
+
+        chat.last_updated = now
+        return member_record is not None
+
+    async def async_remove_user_from_chat(self, chat_id: int, user_id: int) -> bool:
+        result = await self.session.execute(select(Chat).where(Chat.chat_id == chat_id))
+        chat = result.scalar_one_or_none()
+        if not chat:
+            return False
+
+        now = datetime.now(UTC)
+
+        result = await self.session.execute(
+            select(ChatMember).where(and_(ChatMember.chat_id == chat_id, ChatMember.user_id == user_id))
+        )
+        member_record = result.scalar_one_or_none()
+
+        if member_record and not member_record.left_at:
+            member_record.left_at = now
+            if member_record.metadata_:
                 new_meta = dict(member_record.metadata_)
                 new_meta["left_at"] = now.isoformat()
                 member_record.metadata_ = new_meta
@@ -299,6 +374,17 @@ class ChatsRepository(BaseRepository):
                 user.user_name = user_name
             user.user_type = user_type
 
+    async def async_save_bot_user(self, user_id: int, user_name: Optional[str], user_type: int = 0) -> None:
+        user = (await self.session.execute(select(BotUsers).where(BotUsers.user_id == user_id))).scalar_one_or_none()
+
+        if user is None:
+            new_user = BotUsers(user_id=user_id, user_name=user_name, user_type=user_type)
+            self.session.add(new_user)
+        else:
+            if user_name:
+                user.user_name = user_name
+            user.user_type = user_type
+
     def get_user_id(self, user_name: str) -> int:
         if user_name.startswith("@"):
             username = user_name[1:]
@@ -318,6 +404,10 @@ class ChatsRepository(BaseRepository):
         result = self.session.execute(select(BotUsers))
         return result.scalars().all()
 
+    async def async_load_bot_users(self) -> List[BotUsers]:
+        result = await self.session.execute(select(BotUsers))
+        return result.scalars().all()
+
     def update_user_chat_date(self, user_id: int, chat_id: int) -> None:
         existing_record = self.session.execute(
             select(BotUserChats).where(and_(BotUserChats.user_id == user_id, BotUserChats.chat_id == chat_id))
@@ -332,6 +422,11 @@ class ChatsRepository(BaseRepository):
     def get_user_by_id(self, user_id: int) -> Optional[BotUsers]:
         """Get user by ID."""
         result = self.session.execute(select(BotUsers).where(BotUsers.user_id == user_id))
+        return result.scalar_one_or_none()
+
+    async def async_get_user_by_id(self, user_id: int) -> Optional[BotUsers]:
+        """Get user by ID."""
+        result = await self.session.execute(select(BotUsers).where(BotUsers.user_id == user_id))
         return result.scalar_one_or_none()
 
     def save_user_type(self, user_id: int, user_type: int) -> None:

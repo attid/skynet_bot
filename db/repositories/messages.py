@@ -99,3 +99,6 @@ class MessageRepository(BaseRepository):
 
     def send_admin_message(self, msg: str) -> None:
         self.add_message(MTLChats.ITolstov, msg)
+
+    async def async_send_admin_message(self, msg: str) -> None:
+        self.add_message(MTLChats.ITolstov, msg)

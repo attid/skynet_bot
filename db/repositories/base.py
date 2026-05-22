@@ -1,6 +1,6 @@
-from sqlalchemy.orm import Session
+from typing import Any
 
 
 class BaseRepository:
-    def __init__(self, session: Session):
+    def __init__(self, session: Any):
         self.session = session

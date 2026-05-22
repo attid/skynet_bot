@@ -9,14 +9,16 @@ from shared.infrastructure.database.models import BotConfig, KVStore, BotTable
 
 
 class ConfigRepository(BaseRepository):
-    def save_bot_value(self, chat_id: int, chat_key: Union[int, Enum, str], chat_value: Any) -> None:
+    @staticmethod
+    def _normalize_chat_key(chat_key: Union[int, Enum, str]) -> tuple[Union[int, str], str | None]:
         if isinstance(chat_key, int):
-            chat_key_value = chat_key
-        elif isinstance(chat_key, Enum):
-            chat_key_value = chat_key.value
-        else:
-            chat_key_value = chat_key
-        chat_key_name = chat_key.name if isinstance(chat_key, Enum) else None
+            return chat_key, None
+        if isinstance(chat_key, Enum):
+            return chat_key.value, chat_key.name
+        return chat_key, None
+
+    def save_bot_value(self, chat_id: int, chat_key: Union[int, Enum, str], chat_value: Any) -> None:
+        chat_key_value, chat_key_name = self._normalize_chat_key(chat_key)
 
         if chat_value is None:
             stmt = delete(BotConfig).where(and_(BotConfig.chat_id == chat_id, BotConfig.chat_key == chat_key_value))
@@ -37,18 +39,51 @@ class ConfigRepository(BaseRepository):
                 )
                 self.session.add(new_record)
 
-    def load_bot_value(self, chat_id: int, chat_key: Union[int, Enum, str], default_value: Any = "") -> Any:
-        if isinstance(chat_key, int):
-            chat_key_value = chat_key
-        elif isinstance(chat_key, Enum):
-            chat_key_value = chat_key.value
+    async def async_save_bot_value(self, chat_id: int, chat_key: Union[int, Enum, str], chat_value: Any) -> None:
+        chat_key_value, chat_key_name = self._normalize_chat_key(chat_key)
+
+        if chat_value is None:
+            stmt = delete(BotConfig).where(and_(BotConfig.chat_id == chat_id, BotConfig.chat_key == chat_key_value))
+            await self.session.execute(stmt)
         else:
-            chat_key_value = chat_key
+            prepared_value = self._prepare_chat_value(chat_value)
+
+            existing_record = (
+                await self.session.execute(
+                    select(BotConfig).where(and_(BotConfig.chat_id == chat_id, BotConfig.chat_key == chat_key_value))
+                )
+            ).scalar_one_or_none()
+
+            if existing_record:
+                existing_record.chat_key_name = chat_key_name
+                existing_record.chat_value = prepared_value
+            else:
+                new_record = BotConfig(
+                    chat_id=chat_id, chat_key=chat_key_value, chat_key_name=chat_key_name, chat_value=prepared_value
+                )
+                self.session.add(new_record)
+
+    def load_bot_value(self, chat_id: int, chat_key: Union[int, Enum, str], default_value: Any = "") -> Any:
+        chat_key_value, _ = self._normalize_chat_key(chat_key)
 
         record = self.session.execute(
             select(BotConfig).where(and_(BotConfig.chat_id == chat_id, BotConfig.chat_key == chat_key_value))
         ).scalar_one_or_none()
 
+        return self._unpack_bot_value(record, default_value)
+
+    async def async_load_bot_value(self, chat_id: int, chat_key: Union[int, Enum, str], default_value: Any = "") -> Any:
+        chat_key_value, _ = self._normalize_chat_key(chat_key)
+
+        record = (
+            await self.session.execute(
+                select(BotConfig).where(and_(BotConfig.chat_id == chat_id, BotConfig.chat_key == chat_key_value))
+            )
+        ).scalar_one_or_none()
+
+        return self._unpack_bot_value(record, default_value)
+
+    def _unpack_bot_value(self, record: Any, default_value: Any = "") -> Any:
         if record and record.chat_value is not None:
             # logic from mongo.py to handle different formats (json string vs dict vs wrapper dict)
             val = record.chat_value
