@@ -7,7 +7,7 @@ from typing import Any, Optional, cast
 import numpy as np
 import requests
 from gspread import WorksheetNotFound
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from stellar_sdk import Asset, AiohttpClient
 from stellar_sdk.sep.federation import resolve_stellar_address_async
 
@@ -75,7 +75,7 @@ def parse_sheet_number(value: object) -> Optional[float]:
 
 
 @safe_catch_async
-async def check_eurmtl_b13_negative(session: Session, ss: Optional[Any] = None) -> Optional[float]:
+async def check_eurmtl_b13_negative(session: AsyncSession, ss: Optional[Any] = None) -> Optional[float]:
     """Check eurmtl_report!B13 for negative values and notify if needed."""
     if ss is None:
         agc = await agcm.authorize()
@@ -96,7 +96,7 @@ async def check_eurmtl_b13_negative(session: Session, ss: Optional[Any] = None) 
 
 
 @safe_catch_async
-async def update_main_report(session: Session):
+async def update_main_report(session: AsyncSession):
     agc = await agcm.authorize()
 
     # Open a sheet from a spreadsheet in one go
@@ -207,7 +207,7 @@ async def update_main_report(session: Session):
 
 
 @safe_catch_async
-async def update_main_report_additional(session: Session):
+async def update_main_report_additional(session: AsyncSession):
     agc = await agcm.authorize()
     ss = await agc.open_by_key("1hn_GnLoClx20WcAsh0Kax3WP4SC5PGnjs4QZeDnHWec")
     wks_all = await ss.worksheet("IND_ALL")
@@ -301,7 +301,7 @@ def calculate_statistics():
 
 
 @safe_catch_async
-async def update_fire(session: Session):
+async def update_fire(session: AsyncSession):
     agc = await agcm.authorize()
     ss = await agc.open_by_key("1hn_GnLoClx20WcAsh0Kax3WP4SC5PGnjs4QZeDnHWec")
     wks = await ss.worksheet("IND_ALL")
@@ -321,7 +321,7 @@ async def update_fire(session: Session):
             continue
         break
     else:
-        MessageRepository(session).send_admin_message("bad fire value")
+        await MessageRepository(session).async_send_admin_message("bad fire value")
         raise Exception("bad fire value")
 
     logger.info(f"cost_fire {cost_fire}")
@@ -403,7 +403,7 @@ async def update_guarantors_report():
 
 
 @safe_catch_async
-async def update_top_holders_report(session: Session):
+async def update_top_holders_report(session: AsyncSession):
     agc = await agcm.authorize()
 
     now = datetime.now()
@@ -477,7 +477,7 @@ async def update_bdm_report():
     logger.info(f"update bdm_report all done {now}")
 
 
-async def update_mmwb_report(session: Session):
+async def update_mmwb_report(session: AsyncSession):
     agc = await agcm.authorize()
 
     now = datetime.now()
@@ -653,7 +653,7 @@ async def update_airdrop():
     logger.info(f"report 3 all done {now}")
 
 
-async def update_donate_report(session: Session):
+async def update_donate_report(session: AsyncSession):
     await agcm.authorize()
 
 
@@ -738,7 +738,7 @@ async def update_donates_new():
     logger.info(f"new done {now}")
 
 
-async def update_export(session: Session):
+async def update_export(session: AsyncSession):
     agc = await agcm.authorize()
 
     # Open a sheet from a spreadsheet in one go
@@ -754,7 +754,7 @@ async def update_export(session: Session):
     last_row = (await wks.find("LAST", in_column=1)).row
     last_id = (await wks.get_values(f"A{last_row - 1}"))[0][0]
 
-    list_operation = FinanceRepository(session).get_operations(last_id)
+    list_operation = await FinanceRepository(session).async_get_operations(last_id)
 
     for record in list_operation:
         update_list.append(
@@ -785,7 +785,7 @@ async def update_export(session: Session):
     logger.info(f"export all done {now}")
 
 
-async def update_fest(session: Session):
+async def update_fest(session: AsyncSession):
     # Авторизация и открытие таблицы
     agc = await agcm.authorize()
     ss = await agc.open_by_key("1m4NcL3Dqo1UnF4LEGjNO6ZYxSnhykN1HT_2Uts8HpaU")

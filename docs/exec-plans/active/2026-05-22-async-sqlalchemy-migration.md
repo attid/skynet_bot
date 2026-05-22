@@ -152,6 +152,7 @@
       - Частично сделано:
         - `scripts/check_stellar.py`: `cmd_check_bot`, `cmd_check_cron_transaction` and message enqueue helpers use async session context and async `MessageRepository` writes.
         - `scripts/update_report.py`: `lite_report` uses async session context and async commit; report warning messages use async `MessageRepository` helpers.
+        - `scripts/update_report.py`: report entrypoints/functions use `AsyncSession` annotations; Fire alert and export operation reads use async repository helpers.
     - `other/stellar/*.py`: заменить `Session` hints и async DB calls.
       - Частично сделано:
         - `other/stellar/dividend_commands.py`: USDM/runtime dividend list creation, dividend persistence, XDR generation and transaction send paths use `AsyncSession` commits and async `FinanceRepository` reads.

@@ -157,6 +157,16 @@ class FinanceRepository(BaseRepository):
         result = self.session.execute(stmt)
         return cast(List[TOperations], result.scalars().all())
 
+    async def async_get_operations(self, last_id: Optional[str] = None, limit: int = 3000) -> List[TOperations]:
+        if last_id is None:
+            result = await self.session.execute(select(TOperations).order_by(desc(TOperations.dt)))
+            last_record = result.scalar()
+            return [last_record] if last_record else []
+
+        stmt = select(TOperations).where(TOperations.id > last_id).order_by(TOperations.id).limit(limit)
+        result = await self.session.execute(stmt)
+        return cast(List[TOperations], result.scalars().all())
+
     def get_last_trade_operation(self, asset_code: str = "MTL", minimal_sum: float = 0) -> float:
         stmt = (
             select(TOperations)

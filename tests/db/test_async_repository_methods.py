@@ -168,3 +168,14 @@ async def test_finance_repository_async_get_new_effects_for_token_awaits_execute
 
     assert result == effects
     assert len(session.executed) == 1
+
+
+@pytest.mark.asyncio
+async def test_finance_repository_async_get_operations_awaits_execute():
+    operations = [object()]
+    session = FakeAsyncSession([FakeScalarResult(operations)])
+
+    result = await FinanceRepository(session).async_get_operations("123")
+
+    assert result == operations
+    assert len(session.executed) == 1
