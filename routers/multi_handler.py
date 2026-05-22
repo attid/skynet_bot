@@ -12,7 +12,6 @@ from loguru import logger
 from other.constants import BotValueTypes
 from services.command_registry_service import update_command_info
 from services.skyuser import SkyUser
-from db.repositories import ConfigRepository
 from routers.admin_panel import load_inaccessible_chats
 
 router = Router()
@@ -136,111 +135,110 @@ commands_info = {
 }
 
 
-def command_config_loads(app_context):
+async def command_config_loads(app_context):
     """
     Load configuration from database directly into DI services.
 
     Args:
         app_context: AppContext with DI services
     """
-    from db.session import create_session
+    if not app_context or not app_context.db_service:
+        raise ValueError("app_context with db_service required")
+    db_service = app_context.db_service
 
-    with create_session() as session:
-        repo = ConfigRepository(session)
+    # Load feature flags (list-based) directly into feature_flags service
+    feature_flag_mappings = [
+        (BotValueTypes.ReplyOnly, "reply_only"),
+        (BotValueTypes.NoFirstLink, "no_first_link"),
+        (BotValueTypes.FullData, "full_data"),
+        (BotValueTypes.NeedDecode, "need_decode"),
+        (BotValueTypes.SaveLastMessageDate, "save_last_message_date"),
+        (BotValueTypes.FirstVote, "first_vote"),
+        (BotValueTypes.JoinRequestCaptcha, "join_request_captcha"),
+        (BotValueTypes.AutoAll, "auto_all"),
+        (BotValueTypes.Listen, "listen"),
+        (BotValueTypes.Captcha, "captcha"),
+        (BotValueTypes.Moderate, "moderate"),
+    ]
 
-        # Load feature flags (list-based) directly into feature_flags service
-        feature_flag_mappings = [
-            (BotValueTypes.ReplyOnly, "reply_only"),
-            (BotValueTypes.NoFirstLink, "no_first_link"),
-            (BotValueTypes.FullData, "full_data"),
-            (BotValueTypes.NeedDecode, "need_decode"),
-            (BotValueTypes.SaveLastMessageDate, "save_last_message_date"),
-            (BotValueTypes.FirstVote, "first_vote"),
-            (BotValueTypes.JoinRequestCaptcha, "join_request_captcha"),
-            (BotValueTypes.AutoAll, "auto_all"),
-            (BotValueTypes.Listen, "listen"),
-            (BotValueTypes.Captcha, "captcha"),
-            (BotValueTypes.Moderate, "moderate"),
-        ]
+    for db_key, feature_name in feature_flag_mappings:
+        for chat_id in await db_service.get_chat_ids_by_key(db_key):
+            app_context.feature_flags.set_feature(chat_id, feature_name, True, persist=False)
 
-        for db_key, feature_name in feature_flag_mappings:
-            for chat_id in repo.get_chat_ids_by_key(db_key):
-                app_context.feature_flags.set_feature(chat_id, feature_name, True, persist=False)
+    # Load dict-based features (notify_join, notify_message, delete_income, entry_channel)
+    notify_join_data = await db_service.get_chat_dict_by_key(BotValueTypes.NotifyJoin)
+    app_context.notification_service.load_notify_join(notify_join_data)
+    for chat_id in notify_join_data:
+        app_context.feature_flags.set_feature(chat_id, "notify_join", True, persist=False)
 
-        # Load dict-based features (notify_join, notify_message, delete_income, entry_channel)
-        notify_join_data = repo.get_chat_dict_by_key(BotValueTypes.NotifyJoin)
-        app_context.notification_service.load_notify_join(notify_join_data)
-        for chat_id in notify_join_data:
-            app_context.feature_flags.set_feature(chat_id, "notify_join", True, persist=False)
+    notify_message_data = await db_service.get_chat_dict_by_key(BotValueTypes.NotifyMessage)
+    app_context.notification_service.load_notify_message(notify_message_data)
+    for chat_id in notify_message_data:
+        app_context.feature_flags.set_feature(chat_id, "notify_message", True, persist=False)
 
-        notify_message_data = repo.get_chat_dict_by_key(BotValueTypes.NotifyMessage)
-        app_context.notification_service.load_notify_message(notify_message_data)
-        for chat_id in notify_message_data:
-            app_context.feature_flags.set_feature(chat_id, "notify_message", True, persist=False)
+    delete_income_data = await db_service.get_chat_dict_by_key(BotValueTypes.DeleteIncome)
+    app_context.config_service.load_delete_income(delete_income_data)
+    for chat_id in delete_income_data:
+        app_context.feature_flags.set_feature(chat_id, "delete_income", True, persist=False)
 
-        delete_income_data = repo.get_chat_dict_by_key(BotValueTypes.DeleteIncome)
-        app_context.config_service.load_delete_income(delete_income_data)
-        for chat_id in delete_income_data:
-            app_context.feature_flags.set_feature(chat_id, "delete_income", True, persist=False)
+    entry_channel_data = await db_service.get_chat_dict_by_key(BotValueTypes.EntryChannel)
+    for chat_id in entry_channel_data:
+        app_context.feature_flags.set_feature(chat_id, "entry_channel", True, persist=False)
 
-        entry_channel_data = repo.get_chat_dict_by_key(BotValueTypes.EntryChannel)
-        for chat_id in entry_channel_data:
-            app_context.feature_flags.set_feature(chat_id, "entry_channel", True, persist=False)
+    # Load JSON-based global lists (skynet_admins, skynet_img)
+    skynet_admins = json.loads(await db_service.load_bot_value(0, BotValueTypes.SkynetAdmins, "[]"))
+    app_context.admin_service.set_skynet_admins(skynet_admins)
 
-        # Load JSON-based global lists (skynet_admins, skynet_img)
-        skynet_admins = json.loads(repo.load_bot_value(0, BotValueTypes.SkynetAdmins, "[]"))
-        app_context.admin_service.set_skynet_admins(skynet_admins)
+    skynet_img = json.loads(await db_service.load_bot_value(0, BotValueTypes.SkynetImg, "[]"))
+    app_context.admin_service.set_skynet_img_users(skynet_img)
 
-        skynet_img = json.loads(repo.load_bot_value(0, BotValueTypes.SkynetImg, "[]"))
-        app_context.admin_service.set_skynet_img_users(skynet_img)
+    # Load topic admins (JSON dict)
+    topic_admins = json.loads(await db_service.load_bot_value(0, BotValueTypes.TopicAdmins, "{}"))
+    app_context.admin_service.load_topic_admins(topic_admins)
 
-        # Load topic admins (JSON dict)
-        topic_admins = json.loads(repo.load_bot_value(0, BotValueTypes.TopicAdmins, "{}"))
-        app_context.admin_service.load_topic_admins(topic_admins)
+    # Load votes data
+    votes = json.loads(await db_service.load_bot_value(0, BotValueTypes.Votes, "{}"))
+    app_context.voting_service.load_votes(votes)
 
-        # Load votes data
-        votes = json.loads(repo.load_bot_value(0, BotValueTypes.Votes, "{}"))
-        app_context.voting_service.load_votes(votes)
+    # Load first_vote into voting service
+    first_vote_chat_ids = await db_service.get_chat_ids_by_key(BotValueTypes.FirstVote)
+    app_context.voting_service.load_first_vote(first_vote_chat_ids)
 
-        # Load first_vote into voting service
-        first_vote_chat_ids = repo.get_chat_ids_by_key(BotValueTypes.FirstVote)
-        app_context.voting_service.load_first_vote(first_vote_chat_ids)
+    # Load topic mutes
+    topic_mute = json.loads(await db_service.load_bot_value(0, BotValueTypes.TopicMutes, "{}"))
+    app_context.admin_service.load_topic_mutes(topic_mute)
 
-        # Load topic mutes
-        topic_mute = json.loads(repo.load_bot_value(0, BotValueTypes.TopicMutes, "{}"))
-        app_context.admin_service.load_topic_mutes(topic_mute)
+    # Load inaccessible chats for admin panel
+    inaccessible_chats = json.loads(await db_service.load_bot_value(0, BotValueTypes.Inaccessible, "[]"))
+    load_inaccessible_chats(inaccessible_chats)
 
-        # Load inaccessible chats for admin panel
-        inaccessible_chats = json.loads(repo.load_bot_value(0, BotValueTypes.Inaccessible, "[]"))
-        load_inaccessible_chats(inaccessible_chats)
+    # Load welcome messages and buttons
+    welcome_messages = await db_service.get_chat_dict_by_key(BotValueTypes.WelcomeMessage)
+    app_context.config_service.load_welcome_messages(welcome_messages)
 
-        # Load welcome messages and buttons
-        welcome_messages = repo.get_chat_dict_by_key(BotValueTypes.WelcomeMessage)
-        app_context.config_service.load_welcome_messages(welcome_messages)
+    welcome_buttons = await db_service.get_chat_dict_by_key(BotValueTypes.WelcomeButton)
+    app_context.config_service.load_welcome_buttons(welcome_buttons)
 
-        welcome_buttons = repo.get_chat_dict_by_key(BotValueTypes.WelcomeButton)
-        app_context.config_service.load_welcome_buttons(welcome_buttons)
+    # Load admins
+    admins = await db_service.get_chat_dict_by_key(BotValueTypes.Admins, True)
+    app_context.admin_service.load_admins(admins)
 
-        # Load admins
-        admins = repo.get_chat_dict_by_key(BotValueTypes.Admins, True)
-        app_context.admin_service.load_admins(admins)
+    # Load alert_me
+    alert_me = await db_service.get_chat_dict_by_key(BotValueTypes.AlertMe, True)
+    app_context.notification_service.load_alert_me(alert_me)
 
-        # Load alert_me
-        alert_me = repo.get_chat_dict_by_key(BotValueTypes.AlertMe, True)
-        app_context.notification_service.load_alert_me(alert_me)
+    # Load sync states
+    sync_data = await db_service.get_chat_dict_by_key(BotValueTypes.Sync, True)
+    for channel_id, sync_state in sync_data.items():
+        app_context.bot_state_service.set_sync_state(str(channel_id), sync_state)
 
-        # Load sync states
-        sync_data = repo.get_chat_dict_by_key(BotValueTypes.Sync, True)
-        for channel_id, sync_state in sync_data.items():
-            app_context.bot_state_service.set_sync_state(str(channel_id), sync_state)
+    # Mark need_decode in bot_state_service
+    for chat_id in await db_service.get_chat_ids_by_key(BotValueTypes.NeedDecode):
+        app_context.bot_state_service.mark_needs_decode(chat_id)
 
-        # Mark need_decode in bot_state_service
-        for chat_id in repo.get_chat_ids_by_key(BotValueTypes.NeedDecode):
-            app_context.bot_state_service.mark_needs_decode(chat_id)
-
-        # Load channel links
-        channel_links = json.loads(repo.load_bot_value(0, BotValueTypes.ChannelLinks, "{}"))
-        app_context.channel_link_service.load_from_dict(channel_links)
+    # Load channel links
+    channel_links = json.loads(await db_service.load_bot_value(0, BotValueTypes.ChannelLinks, "{}"))
+    app_context.channel_link_service.load_from_dict(channel_links)
 
     # Log loaded feature flags statistics
     _log_feature_flags_stats(app_context)
@@ -408,10 +406,11 @@ async def universal_command_handler(
 
 async def handle_command(message: Message, command_info, session, app_context=None):
     """Handle toggle commands using feature_flags service."""
-    if not app_context or not app_context.feature_flags or not app_context.utils_service:
-        raise ValueError("app_context with feature_flags and utils_service required")
+    if not app_context or not app_context.feature_flags or not app_context.utils_service or not app_context.db_service:
+        raise ValueError("app_context with feature_flags, utils_service, and db_service required")
     feature_flags = cast(Any, app_context.feature_flags)
     utils_service = cast(Any, app_context.utils_service)
+    db_service = cast(Any, app_context.db_service)
     chat_id = message.chat.id
     db_value_type = command_info[0]
     feature_name = command_info[4]
@@ -424,7 +423,7 @@ async def handle_command(message: Message, command_info, session, app_context=No
     if is_enabled:
         # Disable the feature
         feature_flags.set_feature(chat_id, feature_name, False, persist=False)
-        ConfigRepository(session).save_bot_value(chat_id, db_value_type, None)
+        await db_service.save_bot_value(chat_id, db_value_type, None)
 
         # Sync removal to specialized DI services
         _sync_toggle_removal(app_context, db_value_type, chat_id)
@@ -434,7 +433,7 @@ async def handle_command(message: Message, command_info, session, app_context=No
         # Enable the feature
         value_to_set = command_args[0] if command_args else "1"
         feature_flags.set_feature(chat_id, feature_name, True, persist=False)
-        ConfigRepository(session).save_bot_value(chat_id, db_value_type, value_to_set)
+        await db_service.save_bot_value(chat_id, db_value_type, value_to_set)
 
         # Sync addition to specialized DI services
         _sync_toggle_addition(app_context, db_value_type, chat_id, value_to_set)
@@ -561,9 +560,10 @@ async def run_entry_channel_check(bot: Bot, chat_id: int, app_context=None) -> t
 
 async def list_command_handler(message: Message, command_info, session, app_context=None):
     """Handle list commands (add/del/show) for skynet_admins and skynet_img using admin_service."""
-    if not app_context or not app_context.admin_service:
-        raise ValueError("app_context with admin_service required")
+    if not app_context or not app_context.admin_service or not app_context.db_service:
+        raise ValueError("app_context with admin_service and db_service required")
     admin_service = cast(Any, app_context.admin_service)
+    db_service = cast(Any, app_context.db_service)
     db_value_type = command_info[0]
     action_type = command_info[1]
 
@@ -591,7 +591,7 @@ async def list_command_handler(message: Message, command_info, session, app_cont
                 admin_service.set_skynet_admins(current_list)
             else:
                 admin_service.set_skynet_img_users(current_list)
-            ConfigRepository(session).save_bot_value(0, db_value_type, json.dumps(current_list))
+            await db_service.save_bot_value(0, db_value_type, json.dumps(current_list))
             await message.reply(f"Added: {' '.join(command_args)}")
 
     elif action_type == "del_list":
@@ -607,7 +607,7 @@ async def list_command_handler(message: Message, command_info, session, app_cont
                 admin_service.set_skynet_admins(current_list)
             else:
                 admin_service.set_skynet_img_users(current_list)
-            ConfigRepository(session).save_bot_value(0, db_value_type, json.dumps(current_list))
+            await db_service.save_bot_value(0, db_value_type, json.dumps(current_list))
             await message.reply(f"Removed: {' '.join(command_args)}")
 
     elif action_type == "show_list":
@@ -619,9 +619,10 @@ async def list_command_handler(message: Message, command_info, session, app_cont
 
 async def list_command_handler_topic(message: Message, command_info, session, app_context=None):
     """Handle topic-specific list commands using admin_service."""
-    if not app_context or not app_context.admin_service:
-        raise ValueError("app_context with admin_service required")
+    if not app_context or not app_context.admin_service or not app_context.db_service:
+        raise ValueError("app_context with admin_service and db_service required")
     admin_service = cast(Any, app_context.admin_service)
+    db_service = cast(Any, app_context.db_service)
     db_value_type = command_info[0]
     action_type = command_info[1]
 
@@ -640,7 +641,7 @@ async def list_command_handler_topic(message: Message, command_info, session, ap
             all_topic_admins[chat_thread_key].extend(command_args)
             # Update service and persist
             admin_service.load_topic_admins(all_topic_admins)
-            ConfigRepository(session).save_bot_value(0, db_value_type, json.dumps(all_topic_admins))
+            await db_service.save_bot_value(0, db_value_type, json.dumps(all_topic_admins))
             await message.reply(f"Added at this thread: {' '.join(command_args)}")
 
     elif action_type == "del_list_topic":
@@ -653,7 +654,7 @@ async def list_command_handler_topic(message: Message, command_info, session, ap
                         all_topic_admins[chat_thread_key].remove(arg)
                 # Update service and persist
                 admin_service.load_topic_admins(all_topic_admins)
-                ConfigRepository(session).save_bot_value(0, db_value_type, json.dumps(all_topic_admins))
+                await db_service.save_bot_value(0, db_value_type, json.dumps(all_topic_admins))
                 await message.reply(f"Removed from this thread: {' '.join(command_args)}")
             else:
                 await message.reply("This thread has no items in the list.")
@@ -677,10 +678,16 @@ async def link_channel_handler(message: Message, bot: Bot, session, app_context=
     The bot checks if it's an admin in the channel and gets the channel owner.
     Toggle behavior: if channel is linked - unlink, if not linked - link.
     """
-    if not app_context or not app_context.utils_service or not app_context.channel_link_service:
-        raise ValueError("app_context with utils_service and channel_link_service required")
+    if (
+        not app_context
+        or not app_context.utils_service
+        or not app_context.channel_link_service
+        or not app_context.db_service
+    ):
+        raise ValueError("app_context with utils_service, channel_link_service, and db_service required")
     utils_service = cast(Any, app_context.utils_service)
     channel_link_service = cast(Any, app_context.channel_link_service)
+    db_service = cast(Any, app_context.db_service)
 
     # Check if message is sent from a channel
     if not message.sender_chat:
@@ -702,7 +709,7 @@ async def link_channel_handler(message: Message, bot: Bot, session, app_context=
 
         # Persist to database
         all_links = channel_link_service.get_all_links()
-        ConfigRepository(session).save_bot_value(
+        await db_service.save_bot_value(
             0, BotValueTypes.ChannelLinks, json.dumps({str(k): v for k, v in all_links.items()})
         )
 
@@ -751,7 +758,7 @@ async def link_channel_handler(message: Message, bot: Bot, session, app_context=
 
     # Persist to database
     all_links = channel_link_service.get_all_links()
-    ConfigRepository(session).save_bot_value(
+    await db_service.save_bot_value(
         0, BotValueTypes.ChannelLinks, json.dumps({str(k): v for k, v in all_links.items()})
     )
 
@@ -766,7 +773,7 @@ async def link_channel_handler(message: Message, bot: Bot, session, app_context=
 async def on_startup(dispatcher):
     app_context = dispatcher.get("app_context") if hasattr(dispatcher, "get") else None
     if app_context:
-        command_config_loads(app_context)
+        await command_config_loads(app_context)
 
 
 def register_handlers(dp, bot):

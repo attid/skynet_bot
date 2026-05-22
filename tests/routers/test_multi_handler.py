@@ -4,7 +4,7 @@ from aiogram import types
 
 from routers.multi_handler import router as multi_router, on_startup
 from tests.conftest import RouterTestMiddleware
-from other.constants import MTLChats
+from other.constants import BotValueTypes, MTLChats
 
 
 @pytest.fixture(autouse=True)
@@ -43,8 +43,7 @@ async def test_universal_command_toggle(mock_telegram, router_app_context):
 
     # Verify removal using DI service
     assert not router_app_context.feature_flags.is_enabled(MTLChats.TestGroup, "reply_only")
-    # ConfigRepository(session).save_bot_value is now called directly
-    # So we just verify the response message
+    assert await router_app_context.db_service.load_bot_value(MTLChats.TestGroup, 2, None) is None
 
     requests = mock_telegram.get_requests()
     assert any("Removed" in r["data"]["text"] for r in requests if r["method"] == "sendMessage")
@@ -73,7 +72,7 @@ async def test_list_command_add(mock_telegram, router_app_context):
 
     # Check admin_service for the new admin
     assert "@new_admin" in router_app_context.admin_service.get_skynet_admins()
-    # ConfigRepository(session).save_bot_value is now called directly
+    assert "@new_admin" in await router_app_context.db_service.load_bot_value(0, BotValueTypes.SkynetAdmins, "[]")
 
     requests = mock_telegram.get_requests()
     assert any("Added" in r["data"]["text"] for r in requests if r["method"] == "sendMessage")
@@ -115,7 +114,7 @@ async def test_topic_admin_management(mock_telegram, router_app_context):
     all_topic_admins = router_app_context.admin_service.get_all_topic_admins()
     assert chat_thread_key in all_topic_admins
     assert "@topicadmin" in all_topic_admins[chat_thread_key]
-    # ConfigRepository(session).save_bot_value is now called directly
+    assert "@topicadmin" in await router_app_context.db_service.load_bot_value(0, BotValueTypes.TopicAdmins, "{}")
 
     requests = mock_telegram.get_requests()
     assert any("Added at this thread" in r["data"]["text"] for r in requests if r["method"] == "sendMessage")
@@ -215,7 +214,7 @@ async def test_on_startup_triggers_loads(monkeypatch):
     """Test that on_startup calls command_config_loads with app_context."""
     called_with = []
 
-    def fake_command_config_loads(app_context=None):
+    async def fake_command_config_loads(app_context=None):
         called_with.append(app_context)
 
     monkeypatch.setattr("routers.multi_handler.command_config_loads", fake_command_config_loads)
@@ -224,7 +223,6 @@ async def test_on_startup_triggers_loads(monkeypatch):
     fake_app_context = object()  # Any truthy object
     fake_dispatcher = {"app_context": fake_app_context}
 
-    # on_startup is async but command_config_loads is now sync
     await on_startup(fake_dispatcher)
 
     # Verify command_config_loads was called with the app_context

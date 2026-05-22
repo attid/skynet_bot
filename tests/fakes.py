@@ -1544,6 +1544,24 @@ class FakeDatabaseService:
     async def save_bot_user(self, user_id: int, username: str | None, user_type: int = 0) -> None:
         return None
 
+    async def get_chat_ids_by_key(self, chat_key) -> list[int]:
+        normalized = self._key(chat_key)
+        return [chat_id for chat_id, key in self._bot_values if key == normalized]
+
+    async def get_chat_dict_by_key(self, chat_key, return_json=False) -> dict[int, object]:
+        import json
+
+        normalized = self._key(chat_key)
+        result = {}
+        for (chat_id, key), value in self._bot_values.items():
+            if key != normalized:
+                continue
+            if return_json and isinstance(value, str):
+                result[chat_id] = json.loads(value)
+            else:
+                result[chat_id] = value
+        return result
+
 
 class FakeSelfmodService:
     """In-memory Fake of SelfmodService for tests that don't need DB persistence.
