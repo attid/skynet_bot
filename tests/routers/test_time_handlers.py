@@ -2,7 +2,7 @@ import pytest
 from other.constants import MTLChats
 from other.grist_tools import MTLGrist
 import routers.time_handlers as time_handlers
-from tests.fakes import FakeAsyncMethod, FakeSession, FakeSyncMethod
+from tests.fakes import FakeAsyncMethod, FakeSession
 
 
 def make_session_pool(session):
@@ -114,13 +114,13 @@ async def test_time_usdm_daily_sends_summary(mock_telegram, router_app_context, 
     bot = router_app_context.bot
 
     mock_session = FakeSession()
-    mock_pool = make_session_pool(mock_session)
+    mock_pool = make_async_session_pool(mock_session)
 
     calc_result = [("addr1", "x", 10.0), ("addr2", "x", 30.0)]
 
-    mock_create_list = FakeSyncMethod(return_value=452)
+    mock_create_list = FakeAsyncMethod(return_value=452)
     mock_calc_daily = FakeAsyncMethod(return_value=calc_result)
-    mock_gen_xdr = FakeSyncMethod(return_value=0)
+    mock_gen_xdr = FakeAsyncMethod(return_value=0)
     mock_send_by_list = FakeAsyncMethod(return_value=0)
     mock_get_balances = FakeAsyncMethod(return_value={"USDM": "626.57"})
 
@@ -152,7 +152,7 @@ async def test_time_usdm_daily_retries_send_on_error(mock_telegram, router_app_c
     bot = router_app_context.bot
 
     mock_session = FakeSession()
-    mock_pool = make_session_pool(mock_session)
+    mock_pool = make_async_session_pool(mock_session)
 
     calc_result = [("addr1", "x", 1.0)]
     send_results = [Exception("fail"), Exception("fail"), 0]
@@ -163,9 +163,9 @@ async def test_time_usdm_daily_retries_send_on_error(mock_telegram, router_app_c
             raise result
         return result
 
-    mock_create_list = FakeSyncMethod(return_value=1)
+    mock_create_list = FakeAsyncMethod(return_value=1)
     mock_calc_daily = FakeAsyncMethod(return_value=calc_result)
-    mock_gen_xdr = FakeSyncMethod(return_value=0)
+    mock_gen_xdr = FakeAsyncMethod(return_value=0)
     mock_send_by_list = FakeAsyncMethod(side_effect=send_side_effect)
     mock_get_balances = FakeAsyncMethod(return_value={"USDM": "1.00"})
     mock_sleep = FakeAsyncMethod()
@@ -190,7 +190,7 @@ async def test_time_usdm_daily_gives_up_after_many_errors(mock_telegram, router_
     bot = router_app_context.bot
 
     mock_session = FakeSession()
-    mock_pool = make_session_pool(mock_session)
+    mock_pool = make_async_session_pool(mock_session)
 
     calc_result = [("addr1", "x", 1.0)]
     send_results = [Exception("fail")] * 20
@@ -199,9 +199,9 @@ async def test_time_usdm_daily_gives_up_after_many_errors(mock_telegram, router_
         result = send_results.pop(0)
         raise result
 
-    mock_create_list = FakeSyncMethod(return_value=1)
+    mock_create_list = FakeAsyncMethod(return_value=1)
     mock_calc_daily = FakeAsyncMethod(return_value=calc_result)
-    mock_gen_xdr = FakeSyncMethod(return_value=0)
+    mock_gen_xdr = FakeAsyncMethod(return_value=0)
     mock_send_by_list = FakeAsyncMethod(side_effect=send_side_effect)
     mock_get_balances = FakeAsyncMethod(return_value={"USDM": "1.00"})
     mock_sleep = FakeAsyncMethod()

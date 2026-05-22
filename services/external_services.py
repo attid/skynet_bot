@@ -149,20 +149,20 @@ class StellarService:
 
         return await get_cash_balance(chat_id)
 
-    def create_list(self, session, name, type_id):
+    async def create_list(self, session, name, type_id):
         from other.stellar import cmd_create_list
 
-        return cmd_create_list(session, name, type_id)
+        return await cmd_create_list(session, name, type_id)
 
     async def calc_bim_pays(self, session, list_id):
         from other.stellar import cmd_calc_bim_pays
 
         return await cmd_calc_bim_pays(session, list_id)
 
-    def gen_xdr(self, session, list_id):
+    async def gen_xdr(self, session, list_id):
         from other.stellar import cmd_gen_xdr
 
-        return cmd_gen_xdr(session, list_id)
+        return await cmd_gen_xdr(session, list_id)
 
     async def send_by_list_id(self, session, list_id):
         from other.stellar import cmd_send_by_list_id

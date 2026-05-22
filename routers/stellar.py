@@ -7,7 +7,7 @@ from aiogram.filters import Command
 from aiogram.enums import ChatMemberStatus
 from aiogram.types import Message, FSInputFile
 from loguru import logger
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from other.config_reader import start_path
 from other.constants import MTLChats
@@ -53,7 +53,7 @@ async def cmd_decode(message: Message, app_context=None):
 
 @update_command_info("/show_bim", "показать инфо по БДM")
 @router.message(Command(commands=["show_bim"]))
-async def rt_show_bim_msg(message: Message, session: Session, app_context=None):
+async def rt_show_bim_msg(message: Message, session: AsyncSession, app_context=None):
     if not app_context:
         raise ValueError("app_context required")
     ctx = cast(Any, app_context)
@@ -75,7 +75,7 @@ async def cmd_show_balance(message: Message, app_context=None):
 
 
 @router.message(Command(commands=["do_council"]))
-async def cmd_do_council(message: Message, session: Session, app_context=None, skyuser: SkyUser | None = None):
+async def cmd_do_council(message: Message, session: AsyncSession, app_context=None, skyuser: SkyUser | None = None):
     if not skyuser or not skyuser.is_skynet_admin():
         await message.reply("You are not my admin.")
         return
@@ -120,7 +120,7 @@ async def cmd_do_council(message: Message, session: Session, app_context=None, s
 
 
 @router.message(Command(commands=["do_bim"]))
-async def cmd_do_bim(message: Message, session: Session, app_context=None, skyuser: SkyUser | None = None):
+async def cmd_do_bim(message: Message, session: AsyncSession, app_context=None, skyuser: SkyUser | None = None):
     if not skyuser or not skyuser.is_skynet_admin():
         await message.reply("You are not my admin.")
         return
@@ -135,7 +135,7 @@ async def cmd_do_bim(message: Message, session: Session, app_context=None, skyus
         return
 
     # новая запись
-    list_id = ctx.stellar_service.create_list(session, datetime.now().strftime("Basic Income %d/%m/%Y"), 1)
+    list_id = await ctx.stellar_service.create_list(session, datetime.now().strftime("Basic Income %d/%m/%Y"), 1)
 
     lines = []
     msg = await message.answer(ctx.utils_service.add_text(lines, 1, f"Start BDM pays. PayID №{list_id}. Step (1/7)"))
@@ -146,7 +146,7 @@ async def cmd_do_bim(message: Message, session: Session, app_context=None, skyus
 
     i = 1
     while i > 0:
-        i = ctx.stellar_service.gen_xdr(session, list_id)
+        i = await ctx.stellar_service.gen_xdr(session, list_id)
         await msg.edit_text(ctx.utils_service.add_text(lines, 3, f"Part done. Need {i} more. Step (3/7)"))
 
     await msg.edit_text(ctx.utils_service.add_text(lines, 4, "Try send transactions. Step (4/7)"))
@@ -164,7 +164,7 @@ async def cmd_do_bim(message: Message, session: Session, app_context=None, skyus
 
 @update_command_info("/do_resend", "Переотправить транзакцию. Только для админов")
 @router.message(Command(commands=["do_resend"]))
-async def cmd_do_key_rate(message: Message, session: Session, app_context=None, skyuser: SkyUser | None = None):
+async def cmd_do_key_rate(message: Message, session: AsyncSession, app_context=None, skyuser: SkyUser | None = None):
     if not skyuser or not skyuser.is_skynet_admin():
         await message.reply("You are not my admin.")
         return False
@@ -193,7 +193,7 @@ async def cmd_do_key_rate(message: Message, session: Session, app_context=None, 
 
 
 @router.message(Command(commands=["do_all"]))
-async def cmd_do_all(message: Message, session: Session, app_context=None, skyuser: SkyUser | None = None):
+async def cmd_do_all(message: Message, session: AsyncSession, app_context=None, skyuser: SkyUser | None = None):
     if not skyuser or not skyuser.is_skynet_admin():
         await message.reply("You are not my admin.")
         return False
@@ -206,7 +206,7 @@ async def cmd_do_all(message: Message, session: Session, app_context=None, skyus
 
 @update_command_info("/do_div", "начать выплаты дивидентов")
 @router.message(Command(commands=["do_div"]))
-async def cmd_do_div(message: Message, session: Session, app_context=None, skyuser: SkyUser | None = None):
+async def cmd_do_div(message: Message, session: AsyncSession, app_context=None, skyuser: SkyUser | None = None):
     if not skyuser or not skyuser.is_skynet_admin():
         await message.reply("You are not my admin.")
         return
@@ -221,8 +221,8 @@ async def cmd_do_div(message: Message, session: Session, app_context=None, skyus
         await message.reply(f"Low balance at {addresses.public_div} can`t pay divs")
         return
 
-    div_list_id = ctx.stellar_service.create_list(session, datetime.now().strftime("mtl div %d/%m/%Y"), 0)
-    donate_list_id = ctx.stellar_service.create_list(session, datetime.now().strftime("donate %d/%m/%Y"), 0)
+    div_list_id = await ctx.stellar_service.create_list(session, datetime.now().strftime("mtl div %d/%m/%Y"), 0)
+    donate_list_id = await ctx.stellar_service.create_list(session, datetime.now().strftime("donate %d/%m/%Y"), 0)
 
     lines = []
     msg = await message.answer(
@@ -240,12 +240,12 @@ async def cmd_do_div(message: Message, session: Session, app_context=None, skyus
     i = 1
 
     while i > 0:
-        i = ctx.stellar_service.gen_xdr(session, div_list_id)
+        i = await ctx.stellar_service.gen_xdr(session, div_list_id)
         await msg.edit_text(ctx.utils_service.add_text(lines, 3, f"Div part done. Need {i} more. Step (3/12)"))
 
     i = 1
     while i > 0:
-        i = ctx.stellar_service.gen_xdr(session, donate_list_id)
+        i = await ctx.stellar_service.gen_xdr(session, donate_list_id)
         await msg.edit_text(ctx.utils_service.add_text(lines, 4, f"Donate part done. Need {i} more. Step (4/12)"))
 
     await msg.edit_text(ctx.utils_service.add_text(lines, 5, "Try send div transactions. Step (5/12)"))
@@ -276,7 +276,7 @@ async def cmd_do_div(message: Message, session: Session, app_context=None, skyus
 
 @update_command_info("/do_sats_div", "выплата дивидентов в satsmtl")
 @router.message(Command(commands=["do_sats_div"]))
-async def cmd_do_sats_div(message: Message, session: Session, app_context=None, skyuser: SkyUser | None = None):
+async def cmd_do_sats_div(message: Message, session: AsyncSession, app_context=None, skyuser: SkyUser | None = None):
     if not skyuser or not skyuser.is_skynet_admin():
         await message.reply("You are not my admin.")
         return
@@ -291,7 +291,7 @@ async def cmd_do_sats_div(message: Message, session: Session, app_context=None, 
         await message.reply(f"Low sats balance at {addresses.public_div} can`t pay divs")
         return
 
-    div_list_id = ctx.stellar_service.create_list(session, datetime.now().strftime("mtl div %d/%m/%Y"), 4)
+    div_list_id = await ctx.stellar_service.create_list(session, datetime.now().strftime("mtl div %d/%m/%Y"), 4)
 
     lines = []
     msg = await message.answer(ctx.utils_service.add_text(lines, 1, f"Start div pays №{div_list_id}. Step (1/12)"))
@@ -305,7 +305,7 @@ async def cmd_do_sats_div(message: Message, session: Session, app_context=None, 
     i = 1
 
     while i > 0:
-        i = ctx.stellar_service.gen_xdr(session, div_list_id)
+        i = await ctx.stellar_service.gen_xdr(session, div_list_id)
         await msg.edit_text(ctx.utils_service.add_text(lines, 3, f"Div part done. Need {i} more. Step (3/12)"))
 
     await msg.edit_text(ctx.utils_service.add_text(lines, 4, "Try send div transactions. Step (4/12)"))
@@ -323,7 +323,7 @@ async def cmd_do_sats_div(message: Message, session: Session, app_context=None, 
 
 
 @router.message(Command(commands=["do_usdm_div"]))
-async def cmd_do_usdm_div(message: Message, session: Session, app_context=None, skyuser: SkyUser | None = None):
+async def cmd_do_usdm_div(message: Message, session: AsyncSession, app_context=None, skyuser: SkyUser | None = None):
     if not skyuser or not skyuser.is_skynet_admin():
         await message.reply("You are not my admin.")
         return
@@ -338,7 +338,7 @@ async def cmd_do_usdm_div(message: Message, session: Session, app_context=None, 
         await message.reply(f"Low usdm balance at {addresses.public_div} can`t pay divs")
         return
 
-    div_list_id = ctx.stellar_service.create_list(session, datetime.now().strftime("mtl div %d/%m/%Y"), 5)
+    div_list_id = await ctx.stellar_service.create_list(session, datetime.now().strftime("mtl div %d/%m/%Y"), 5)
 
     lines = []
     msg = await message.answer(ctx.utils_service.add_text(lines, 1, f"Start div pays №{div_list_id}. Step (1/12)"))
@@ -352,7 +352,7 @@ async def cmd_do_usdm_div(message: Message, session: Session, app_context=None, 
     i = 1
 
     while i > 0:
-        i = ctx.stellar_service.gen_xdr(session, div_list_id)
+        i = await ctx.stellar_service.gen_xdr(session, div_list_id)
         await msg.edit_text(ctx.utils_service.add_text(lines, 3, f"Div part done. Need {i} more. Step (3/12)"))
 
     await msg.edit_text(ctx.utils_service.add_text(lines, 4, "Try send div transactions. Step (4/12)"))
@@ -371,7 +371,9 @@ async def cmd_do_usdm_div(message: Message, session: Session, app_context=None, 
 
 @update_command_info("/do_usdm_usdm_div_daily", "выплата дивидентов в usdm от usdm")
 @router.message(Command(commands=["do_usdm_usdm_div_daily"]))
-async def cmd_do_usdm_usdm_div(message: Message, session: Session, app_context=None, skyuser: SkyUser | None = None):
+async def cmd_do_usdm_usdm_div(
+    message: Message, session: AsyncSession, app_context=None, skyuser: SkyUser | None = None
+):
     if not skyuser or not skyuser.is_skynet_admin():
         await message.reply("You are not my admin.")
         return
@@ -386,7 +388,7 @@ async def cmd_do_usdm_usdm_div(message: Message, session: Session, app_context=N
         await message.reply(f"Low usdm balance at {addresses.public_usdm_div} can`t pay divs")
         return
 
-    div_list_id = ctx.stellar_service.create_list(session, datetime.now().strftime("usdm div %d/%m/%Y"), 6)
+    div_list_id = await ctx.stellar_service.create_list(session, datetime.now().strftime("usdm div %d/%m/%Y"), 6)
 
     lines = []
     msg = await message.answer(ctx.utils_service.add_text(lines, 1, f"Start div pays №{div_list_id}. Step (1/12)"))
@@ -400,7 +402,7 @@ async def cmd_do_usdm_usdm_div(message: Message, session: Session, app_context=N
     i = 1
 
     while i > 0:
-        i = ctx.stellar_service.gen_xdr(session, div_list_id)
+        i = await ctx.stellar_service.gen_xdr(session, div_list_id)
         await msg.edit_text(ctx.utils_service.add_text(lines, 3, f"Div part done. Need {i} more. Step (3/12)"))
 
     await msg.edit_text(ctx.utils_service.add_text(lines, 4, "Try send div transactions. Step (4/12)"))
@@ -419,7 +421,7 @@ async def cmd_do_usdm_usdm_div(message: Message, session: Session, app_context=N
 
 @update_command_info("/do_usdm_usdm_div_test", "test выплата дивидентов в usdm от usdm")
 @router.message(Command(commands=["do_usdm_usdm_div_test"]))
-async def cmd_do_usdm_usdm_div_test(message: Message, session: Session, app_context=None):
+async def cmd_do_usdm_usdm_div_test(message: Message, session: AsyncSession, app_context=None):
     if not app_context:
         raise ValueError("app_context required")
     ctx = cast(Any, app_context)
@@ -570,7 +572,7 @@ async def cmd_update_airdrops(message: Message, app_context=None, skyuser: SkyUs
 
 
 @router.message(Command(commands=["update_fest"]))
-async def cmd_update_fest(message: Message, session: Session, app_context=None):
+async def cmd_update_fest(message: Message, session: AsyncSession, app_context=None):
     if not app_context:
         raise ValueError("app_context required")
     ctx = cast(Any, app_context)

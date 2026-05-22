@@ -11,7 +11,7 @@ from decimal import Decimal, InvalidOperation, ROUND_DOWN
 from typing import Optional
 
 from loguru import logger
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from stellar_sdk import Asset, TransactionBuilder, TransactionEnvelope
 from stellar_sdk.client.aiohttp_client import AiohttpClient
 from stellar_sdk.server_async import ServerAsync
@@ -135,7 +135,7 @@ async def get_liquidity_pools_for_asset(asset: Asset) -> list:
         return pools
 
 
-def cmd_create_list(session: Session, memo: str, pay_type: int) -> int:
+async def cmd_create_list(session: AsyncSession, memo: str, pay_type: int) -> int:
     """
     Create new dividend list record in database.
 
@@ -149,11 +149,12 @@ def cmd_create_list(session: Session, memo: str, pay_type: int) -> int:
     """
     new = TDivList(memo=memo, pay_type=pay_type)
     session.add(new)
-    session.commit()
+    await session.flush()
+    await session.commit()
     return new.id
 
 
-async def cmd_calc_bim_pays(session: Session, list_id: int, test_sum: int = 0) -> list:
+async def cmd_calc_bim_pays(session: AsyncSession, list_id: int, test_sum: int = 0) -> list:
     """
     Calculate MTLAP holder dividend allocations for Basic Income MTL (BIM).
 
@@ -223,12 +224,12 @@ async def cmd_calc_bim_pays(session: Session, list_id: int, test_sum: int = 0) -
         for item in mtl_accounts
     ]
     session.add_all(payments)
-    session.commit()
+    await session.commit()
 
     return mtl_accounts
 
 
-async def cmd_calc_divs(session: Session, div_list_id: int, donate_list_id: int, test_sum: int = 0) -> list:
+async def cmd_calc_divs(session: AsyncSession, div_list_id: int, donate_list_id: int, test_sum: int = 0) -> list:
     """
     Calculate and prepare EURMTL dividends for MTL/MTLRECT holders.
 
@@ -327,12 +328,12 @@ async def cmd_calc_divs(session: Session, div_list_id: int, donate_list_id: int,
         for item in div_accounts
     ]
     session.add_all(payments)
-    session.commit()
+    await session.commit()
 
     return div_accounts
 
 
-async def cmd_calc_sats_divs(session: Session, div_list_id: int, test_sum: int = 0):
+async def cmd_calc_sats_divs(session: AsyncSession, div_list_id: int, test_sum: int = 0):
     """
     Calculate SATSMTL dividends for MTL/MTLRECT holders.
 
@@ -351,7 +352,7 @@ async def cmd_calc_sats_divs(session: Session, div_list_id: int, test_sum: int =
     return all_issuer
 
 
-async def cmd_calc_usdm_divs(session: Session, div_list_id: int, test_sum: int = 0):
+async def cmd_calc_usdm_divs(session: AsyncSession, div_list_id: int, test_sum: int = 0):
     """
     Calculate USDM dividends for MTL/MTLRECT holders.
 
@@ -370,7 +371,7 @@ async def cmd_calc_usdm_divs(session: Session, div_list_id: int, test_sum: int =
 
 @safe_catch_async
 async def cmd_calc_usdm_usdm_divs(
-    session: Session, div_list_id: int, test_sum: int = 0, test_for_address: Optional[str] = None
+    session: AsyncSession, div_list_id: int, test_sum: int = 0, test_for_address: Optional[str] = None
 ) -> list:
     """
     Calculate USDM distribution dividends for USDM holders.
@@ -458,7 +459,9 @@ async def cmd_calc_usdm_usdm_divs(
         if current_date == period_start:
             break
 
-        for record in FinanceRepository(session).get_operations_by_asset(MTLAssets.usdm_asset.code, current_date):
+        for record in await FinanceRepository(session).async_get_operations_by_asset(
+            MTLAssets.usdm_asset.code, current_date
+        ):
             if record.for_account in div_accounts_dict:
                 if record.operation == "account_credited":
                     div_accounts_dict[record.for_account] -= float(record.amount1)
@@ -498,7 +501,7 @@ async def cmd_calc_usdm_usdm_divs(
             for item in div_accounts
         ]
         session.add_all(payments)
-        session.commit()
+        await session.commit()
         return div_accounts
 
 
@@ -541,7 +544,7 @@ async def cmd_calc_usdm_sum() -> float:
 
 @safe_catch_async
 async def cmd_calc_usdm_daily(
-    session: Session, div_list_id: int, test_sum: int = 0, test_for_address: Optional[str] = None
+    session: AsyncSession, div_list_id: int, test_sum: int = 0, test_for_address: Optional[str] = None
 ) -> list:
     """
     Calculate daily USDM distributions to USDM holders.
@@ -621,11 +624,11 @@ async def cmd_calc_usdm_daily(
             for item in div_accounts
         ]
         session.add_all(payments)
-        session.commit()
+        await session.commit()
         return div_accounts
 
 
-def cmd_gen_xdr(session: Session, list_id: int) -> int:
+async def cmd_gen_xdr(session: AsyncSession, list_id: int) -> int:
     """
     Generate XDR for batch dividend payments.
 
@@ -636,7 +639,9 @@ def cmd_gen_xdr(session: Session, list_id: int) -> int:
     Returns:
         Number of remaining unpacked payments
     """
-    div_list = FinanceRepository(session).get_div_list(list_id)
+    div_list = await FinanceRepository(session).async_get_div_list(list_id)
+    if div_list is None:
+        raise ValueError(f"Dividend list {list_id} not found")
     memo = div_list.memo
     pay_type = div_list.pay_type
     server = get_server()
@@ -667,25 +672,25 @@ def cmd_gen_xdr(session: Session, list_id: int) -> int:
     )
     transaction.set_timeout(60 * 60 * 24 * 7)
 
-    for payment in FinanceRepository(session).get_payments(list_id, PACK_COUNT):
+    for payment in await FinanceRepository(session).async_get_payments(list_id, PACK_COUNT):
         if round(payment.user_div, 7) > 0:
             transaction.append_payment_op(
                 destination=payment.user_key, amount=str(round(payment.user_div, 7)), asset=asset
             )
         payment.was_packed = 1
-    session.commit()
+    await session.commit()
 
     transaction.add_text_memo(memo)
     transaction = transaction.build()
     xdr = transaction.to_xdr()
 
     session.add(TTransaction(xdr=xdr, id_div_list=list_id, xdr_id=0))
-    session.commit()
-    need = FinanceRepository(session).count_unpacked_payments(list_id)
+    await session.commit()
+    need = await FinanceRepository(session).async_count_unpacked_payments(list_id)
     return need
 
 
-async def cmd_send_by_list_id(session: Session, list_id: int) -> int:
+async def cmd_send_by_list_id(session: AsyncSession, list_id: int) -> int:
     """
     Send all pending payments for a dividend list.
 
@@ -696,7 +701,7 @@ async def cmd_send_by_list_id(session: Session, list_id: int) -> int:
     Returns:
         Number of remaining unsent transactions
     """
-    for db_transaction in FinanceRepository(session).load_transactions(list_id):
+    for db_transaction in await FinanceRepository(session).async_load_transactions(list_id):
         transaction = TransactionEnvelope.from_xdr(db_transaction.xdr, network_passphrase=get_network_passphrase())
         div_account = await load_account_async(transaction.transaction.source.account_id)
         sequence = div_account.sequence + 1
@@ -706,6 +711,6 @@ async def cmd_send_by_list_id(session: Session, list_id: int) -> int:
         logger.info(transaction_resp)
         db_transaction.was_send = 1
         db_transaction.xdr_id = sequence
-    session.commit()
+    await session.commit()
 
-    return FinanceRepository(session).count_unsent_transactions(list_id)
+    return await FinanceRepository(session).async_count_unsent_transactions(list_id)

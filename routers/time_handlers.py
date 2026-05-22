@@ -141,10 +141,10 @@ async def time_usdm_daily(session_pool, bot: Bot):
         logger.error("StellarService is not initialized in AppContext")
         return
 
-    with session_pool() as session:
+    async with session_pool() as session:
         # новая запись
         # ('mtl div 17/12/2021')
-        div_list_id = stellar_service.create_list(session, datetime.now().strftime("usdm div %d/%m/%Y"), 6)
+        div_list_id = await stellar_service.create_list(session, datetime.now().strftime("usdm div %d/%m/%Y"), 6)
         logger.info(f"Start div pays №{div_list_id}. Step (1/7)")
         result = await stellar_service.calc_usdm_daily(session, div_list_id)
         logger.info(f"Found {len(result)} addresses. Try gen xdr.")
@@ -154,7 +154,7 @@ async def time_usdm_daily(session_pool, bot: Bot):
         i = 1
 
         while i > 0:
-            i = stellar_service.gen_xdr(session, div_list_id)
+            i = await stellar_service.gen_xdr(session, div_list_id)
             logger.info(f"Div part done. Need {i} more. Step (3/7)")
 
         logger.info("Try send div transactions. Step (4/7)")
@@ -198,6 +198,7 @@ def scheduler_jobs(
     async_session_pool=None,
 ):
     message_session_pool = async_session_pool or session_pool
+    usdm_session_pool = async_session_pool or session_pool
     scheduler.add_job(
         cmd_send_message_1m, "interval", seconds=10, args=(bot, message_session_pool), misfire_grace_time=360
     )
@@ -236,7 +237,7 @@ def scheduler_jobs(
     ### scheduler.add_job(cmd_send_message_key_rate, "cron", day_of_week='fri', hour=8, minute=10, args=(dp,))
 
     # usdm divs
-    scheduler.add_job(time_usdm_daily, "cron", hour=4, minute=4, args=(session_pool, bot), misfire_grace_time=360)
+    scheduler.add_job(time_usdm_daily, "cron", hour=4, minute=4, args=(usdm_session_pool, bot), misfire_grace_time=360)
     ### job.args = (dp, 25,)
     ### await cmd_send_message_10м(dp)
 

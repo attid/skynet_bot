@@ -20,8 +20,18 @@ class FinanceRepository(BaseRepository):
     def get_div_list(self, list_id: int) -> Optional[TDivList]:
         return self.session.execute(select(TDivList).where(TDivList.id == list_id)).scalar_one_or_none()
 
+    async def async_get_div_list(self, list_id: int) -> Optional[TDivList]:
+        result = await self.session.execute(select(TDivList).where(TDivList.id == list_id))
+        return result.scalar_one_or_none()
+
     def get_payments(self, list_id: int, pack_count: int) -> List[TPayments]:
         result = self.session.execute(
+            select(TPayments).where(and_(TPayments.was_packed == 0, TPayments.id_div_list == list_id)).limit(pack_count)
+        )
+        return cast(List[TPayments], result.scalars().all())
+
+    async def async_get_payments(self, list_id: int, pack_count: int) -> List[TPayments]:
+        result = await self.session.execute(
             select(TPayments).where(and_(TPayments.was_packed == 0, TPayments.id_div_list == list_id)).limit(pack_count)
         )
         return cast(List[TPayments], result.scalars().all())
@@ -32,14 +42,34 @@ class FinanceRepository(BaseRepository):
         ).scalar()
         return result if result is not None else 0
 
+    async def async_count_unpacked_payments(self, list_id: int) -> int:
+        result = await self.session.execute(
+            select(func.count()).where(and_(TPayments.was_packed == 0, TPayments.id_div_list == list_id))
+        )
+        value = result.scalar()
+        return value if value is not None else 0
+
     def count_unsent_transactions(self, list_id: int) -> int:
         result = self.session.execute(
             select(func.count()).where(and_(TTransaction.was_send == 0, TTransaction.id_div_list == list_id))
         ).scalar()
         return result if result is not None else 0
 
+    async def async_count_unsent_transactions(self, list_id: int) -> int:
+        result = await self.session.execute(
+            select(func.count()).where(and_(TTransaction.was_send == 0, TTransaction.id_div_list == list_id))
+        )
+        value = result.scalar()
+        return value if value is not None else 0
+
     def load_transactions(self, list_id: int) -> List[TTransaction]:
         result = self.session.execute(
+            select(TTransaction).where(and_(TTransaction.was_send == 0, TTransaction.id_div_list == list_id))
+        )
+        return cast(List[TTransaction], result.scalars().all())
+
+    async def async_load_transactions(self, list_id: int) -> List[TTransaction]:
+        result = await self.session.execute(
             select(TTransaction).where(and_(TTransaction.was_send == 0, TTransaction.id_div_list == list_id))
         )
         return cast(List[TTransaction], result.scalars().all())
@@ -137,4 +167,13 @@ class FinanceRepository(BaseRepository):
             .where(sql_cast(TOperations.dt, Date) == dt_filter)
         )
         result = self.session.execute(stmt)
+        return cast(List[TOperations], result.scalars().all())
+
+    async def async_get_operations_by_asset(self, asset_code: str, dt_filter) -> List[TOperations]:
+        stmt = (
+            select(TOperations)
+            .where((TOperations.code1 == asset_code) | (TOperations.code2 == asset_code))
+            .where(sql_cast(TOperations.dt, Date) == dt_filter)
+        )
+        result = await self.session.execute(stmt)
         return cast(List[TOperations], result.scalars().all())
