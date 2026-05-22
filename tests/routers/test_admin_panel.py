@@ -15,8 +15,10 @@ from routers.admin_panel import (
     feature_flags_kb,
     welcome_kb,
     mark_chat_inaccessible,
+    async_mark_chat_inaccessible,
     is_chat_accessible,
     unmark_chat_accessible,
+    async_unmark_chat_accessible,
     load_inaccessible_chats,
     notify_owner_about_settings_change,
     _inaccessible_chats,
@@ -72,6 +74,26 @@ class TestInaccessibleChats:
         load_inaccessible_chats([100])
         assert is_chat_accessible(999)
         assert not is_chat_accessible(100)
+
+    @pytest.mark.asyncio
+    async def test_async_mark_chat_inaccessible_persists(self, router_app_context):
+        """Test async marking persists inaccessible chats through db_service."""
+        await async_mark_chat_inaccessible(123, router_app_context)
+
+        assert not is_chat_accessible(123)
+        persisted = await router_app_context.db_service.load_bot_value(0, BotValueTypes.Inaccessible, "[]")
+        assert "123" in persisted
+
+    @pytest.mark.asyncio
+    async def test_async_unmark_chat_accessible_persists(self, router_app_context):
+        """Test async unmarking persists inaccessible chats through db_service."""
+        mark_chat_inaccessible(123)
+
+        await async_unmark_chat_accessible(123, router_app_context)
+
+        assert is_chat_accessible(123)
+        persisted = await router_app_context.db_service.load_bot_value(0, BotValueTypes.Inaccessible, "[]")
+        assert "123" not in persisted
 
 
 # ============ Unit Tests: Keyboard Builders ============

@@ -18,7 +18,6 @@ from aiogram.utils.text_decorations import html_decoration
 from loguru import logger
 from sqlalchemy.orm import Session
 
-from db.repositories import ConfigRepository
 from other.constants import BotValueTypes
 from services.command_registry_service import update_command_info
 from services.app_context import AppContext
@@ -97,16 +96,19 @@ _chat_owners: dict[int, int | None] = {}  # chat_id -> owner_user_id (or None if
 
 
 def mark_chat_inaccessible(chat_id: int, session: Session | None = None) -> None:
-    """Mark chat as inaccessible. Optionally save to DB."""
+    """Mark chat as inaccessible in memory."""
     _inaccessible_chats.add(chat_id)
-    if session:
-        try:
-            # Save to DB as JSON list
-            ConfigRepository(session).save_bot_value(
-                0, BotValueTypes.Inaccessible, json.dumps(list(_inaccessible_chats))
-            )
-        except Exception as e:
-            logger.error(f"Failed to save inaccessible chats: {e}")
+
+
+async def async_mark_chat_inaccessible(chat_id: int, app_context: AppContext | None = None) -> None:
+    """Mark chat as inaccessible and save it using async database service."""
+    _inaccessible_chats.add(chat_id)
+    if not app_context or not app_context.db_service:
+        return
+    try:
+        await app_context.db_service.save_bot_value(0, BotValueTypes.Inaccessible, json.dumps(list(_inaccessible_chats)))
+    except Exception as e:
+        logger.error(f"Failed to save inaccessible chats: {e}")
 
 
 def is_chat_accessible(chat_id: int) -> bool:
@@ -115,28 +117,21 @@ def is_chat_accessible(chat_id: int) -> bool:
 
 
 def unmark_chat_accessible(chat_id: int, session: Session | None = None) -> None:
-    """Remove chat from inaccessible list (it's accessible now)."""
+    """Remove chat from inaccessible list in memory."""
     if chat_id not in _inaccessible_chats:
         return
     _inaccessible_chats.discard(chat_id)
-    if session:
-        try:
-            ConfigRepository(session).save_bot_value(
-                0, BotValueTypes.Inaccessible, json.dumps(list(_inaccessible_chats))
-            )
-        except Exception as e:
-            logger.error(f"Failed to save inaccessible chats: {e}")
 
 
-async def async_unmark_chat_accessible(chat_id: int, session) -> None:
-    """Remove chat from inaccessible list and save it using async DB session."""
+async def async_unmark_chat_accessible(chat_id: int, app_context: AppContext | None = None) -> None:
+    """Remove chat from inaccessible list and save it using async database service."""
     if chat_id not in _inaccessible_chats:
         return
     _inaccessible_chats.discard(chat_id)
+    if not app_context or not app_context.db_service:
+        return
     try:
-        await ConfigRepository(session).async_save_bot_value(
-            0, BotValueTypes.Inaccessible, json.dumps(list(_inaccessible_chats))
-        )
+        await app_context.db_service.save_bot_value(0, BotValueTypes.Inaccessible, json.dumps(list(_inaccessible_chats)))
     except Exception as e:
         logger.error(f"Failed to save inaccessible chats: {e}")
 
@@ -165,7 +160,7 @@ async def get_chat_title(
             _chat_titles[chat_id] = title
             return title
         else:
-            mark_chat_inaccessible(chat_id, session)
+            await async_mark_chat_inaccessible(chat_id, app_context)
             return None
 
     # Fallback: direct API call if no db_service available
@@ -175,7 +170,7 @@ async def get_chat_title(
         _chat_titles[chat_id] = title
         return title
     except (TelegramBadRequest, TelegramForbiddenError):
-        mark_chat_inaccessible(chat_id, session)
+        await async_mark_chat_inaccessible(chat_id, app_context)
         return None
 
 

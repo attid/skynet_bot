@@ -741,13 +741,13 @@ async def cmd_update_admin(event: ChatMemberUpdated, session: Session, bot: Bot,
     chat_id = event.chat.id
 
     # Chat is accessible if we received this update - remove from inaccessible list
-    from routers.admin_panel import unmark_chat_accessible
+    from routers.admin_panel import async_unmark_chat_accessible
 
     if _is_async_session(session):
-        from routers.admin_panel import async_unmark_chat_accessible
-
-        await async_unmark_chat_accessible(chat_id, session)
+        await async_unmark_chat_accessible(chat_id, app_context)
     else:
+        from routers.admin_panel import unmark_chat_accessible
+
         unmark_chat_accessible(chat_id, session)
 
     members = await event.chat.get_administrators()
