@@ -139,6 +139,7 @@ members_key.json
 /data/*
 *.sh
 /.junie/*
+/.antigravitycli/*
 /.venv_tmp_alembic/*
 /.vscode/settings.json
 /docs/tasks.md
