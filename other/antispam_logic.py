@@ -5,7 +5,7 @@ from aiogram.exceptions import TelegramBadRequest
 from loguru import logger
 
 from other.text_tools import extract_url
-from start import add_bot_users
+from start import async_add_bot_users
 from other.constants import MTLChats, BotValueTypes
 from services.app_context import app_context
 from shared.domain.user import SpamStatus
@@ -54,6 +54,13 @@ async def save_url(chat_id, msg_id, msg):
     url = extract_url(msg)
     await app_context.db_service.save_bot_value(chat_id, BotValueTypes.PinnedUrl, url)
     await app_context.db_service.save_bot_value(chat_id, BotValueTypes.PinnedId, msg_id)
+
+
+async def _save_bot_user(session, user_id: int, username: str | None, user_type: int) -> None:
+    if session is None:
+        await app_context.db_service.save_bot_user(user_id, username, user_type)
+        return
+    await async_add_bot_users(session, user_id, username, user_type)
 
 
 async def delete_and_log_spam(message, session, rules_name):
@@ -123,7 +130,7 @@ async def delete_and_log_spam(message, session, rules_name):
         ),
     )
     await message.delete()
-    add_bot_users(session, user_id, _get_sender_username(message), 0)
+    await _save_bot_user(session, user_id, _get_sender_username(message), 0)
 
 
 async def set_vote(message):
@@ -224,6 +231,6 @@ async def check_spam(message, session=None):
         await delete_and_log_spam(message, session, rules_name)
         return True
     else:
-        add_bot_users(session, user_id, _get_sender_username(message), 1)
+        await _save_bot_user(session, user_id, _get_sender_username(message), 1)
         await set_vote(message)
         return False

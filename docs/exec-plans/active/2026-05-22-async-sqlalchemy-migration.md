@@ -121,12 +121,14 @@
         - `start.py`: `message`, `callback_query`, `inline_query`, `chat_member`, `channel_post`, `edited_channel_post`, `poll_answer`, `message_reaction` middleware use `AsyncSessionPool`; legacy sync pool remains only for not-yet-migrated scheduled/script paths.
         - `services/database_service.py`: добавлен async `save_bot_user`; `/start` пишет через `app_context.db_service`, без injected sync session.
         - `services/config_service.py`: добавлены async persistence methods для welcome/delete-income cache paths.
+        - `other/antispam_logic.py`: spam fallback bot-user writes use async DB service/session helper.
         - `routers/multi_handler.py`: startup config loader и команды настроек переведены с `create_session`/`ConfigRepository(session)` на async `app_context.db_service`; `on_startup` await-ит loader.
         - `routers/welcome.py`: `/set_welcome`, `/delete_welcome`, `/set_welcome_button`, `/stop_exchange`, `/start_exchange` больше не требуют injected sync session и пишут через async `app_context.db_service`.
         - `routers/admin_panel.py`: feature toggle, admin reload, welcome delete/edit FSM handlers and inaccessible-chat persistence write through async `app_context.db_service` instead of `ConfigRepository(session)`.
         - `routers/admin_core.py`: topic mute/unmute/show expired mute cleanup, message-reaction mute and `/alert_me` persist through async `app_context.db_service`; mention target lookup uses async `db_service.get_user_id`.
         - `routers/admin_system.py`: `/summary`, `/sync`, `/resync`, edited channel stale sync cleanup and `/update_chats_info` persist through async `app_context.db_service`.
         - `routers/moderation.py` / `services/external_services.ModerationService`: ban/unban/test_id username/status paths use awaited async DB access and async bot-user persistence.
+        - `services/external_services.AIService.remind`: pinned message fallback reads use async `ConfigRepository` calls.
         - `services/database_service.py`: добавлен async transactional summary builder для saved messages.
         - `routers/last_handler.py`: saved messages, pinned URL/id, last-message dates, topic mutes and bot-user status writes go through async `app_context.db_service`; mention lookup uses async `db_service.get_user_id`.
         - `routers/selfmod.py`: mute approval persists TopicMutes through async `app_context.db_service`.

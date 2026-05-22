@@ -599,8 +599,8 @@ class TalkService:
                     await send_by_list(bot=self.bot, all_users=all_users, message=message, url=url, session=session)
         else:
             repo = ConfigRepository(session)
-            msg_id = repo.load_bot_value(message.chat.id, BotValueTypes.PinnedId)
-            pinned_url = repo.load_bot_value(message.chat.id, BotValueTypes.PinnedUrl)
+            msg_id = await repo.async_load_bot_value(message.chat.id, BotValueTypes.PinnedId)
+            pinned_url = await repo.async_load_bot_value(message.chat.id, BotValueTypes.PinnedUrl)
             msg = (pinned_url or "") + "\nСмотрите закреп / Look at the pinned message"
             await self.bot.send_message(
                 message.chat.id, msg, reply_to_message_id=msg_id, message_thread_id=message.message_thread_id
