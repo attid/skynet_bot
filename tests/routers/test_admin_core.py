@@ -4,7 +4,7 @@ from aiogram import types
 from aiogram.exceptions import TelegramBadRequest
 from routers.admin_core import router as admin_router, message_reaction as message_reaction_handler
 from tests.conftest import RouterTestMiddleware
-from other.constants import MTLChats
+from other.constants import BotValueTypes, MTLChats
 from other.pyro_tools import GroupMember
 import datetime
 
@@ -155,6 +155,7 @@ async def test_mute_command(mock_telegram, router_app_context):
     # Verify mute logic: Check admin_service.topic_mute updated (DI pattern)
     mutes = router_app_context.admin_service.get_topic_mutes_by_key(chat_thread_key)
     assert 789 in mutes
+    assert await router_app_context.db_service.load_bot_value(0, BotValueTypes.TopicMutes, "{}") != "{}"
 
 
 @pytest.mark.asyncio
@@ -423,6 +424,7 @@ async def test_alert_me_add(mock_telegram, router_app_context):
     requests = mock_telegram.get_requests()
     req = next((r for r in requests if r["method"] == "sendMessage" and "Added" in r["data"]["text"]), None)
     assert req is not None
+    assert await router_app_context.db_service.load_bot_value(123, BotValueTypes.AlertMe, None) == "[999]"
 
     # Verify sleep_and_delete called
     assert len(router_app_context.utils_service.sleep_and_delete_calls) == 2
@@ -1147,6 +1149,7 @@ async def test_mute_command_by_mention(mock_telegram, router_app_context):
 
     # Register target user in DB so get_user_id can resolve them
     router_app_context.session.set_user(789, user_name="baduser")
+    await router_app_context.db_service.save_bot_user(789, "baduser")
 
     update = types.Update(
         update_id=3,
@@ -1186,6 +1189,7 @@ async def test_mute_mention_wins_over_reply(mock_telegram, router_app_context):
 
     # Register mentioned user in DB
     router_app_context.session.set_user(789, user_name="mentioned_user")
+    await router_app_context.db_service.save_bot_user(789, "mentioned_user")
 
     # Reply targets a different user (id=555)
     reply_msg = types.Message(
@@ -1284,6 +1288,7 @@ async def test_unmute_command_by_mention(mock_telegram, router_app_context):
 
     # Register user in DB
     router_app_context.session.set_user(789, user_name="baduser")
+    await router_app_context.db_service.save_bot_user(789, "baduser")
 
     # Set an active mute
     future_time = (datetime.datetime.now() + datetime.timedelta(hours=1)).isoformat()

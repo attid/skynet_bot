@@ -1530,6 +1530,7 @@ class FakeDatabaseService:
     def __init__(self):
         self._chats = {}  # chat_id -> ChatDTO
         self._bot_values: dict[tuple[int, object], object] = {}
+        self._bot_users: dict[int, str | None] = {}
 
     async def get_chat_by_id(self, chat_id: int):
         """Get chat from database by ID, returns ChatDTO or None."""
@@ -1566,7 +1567,14 @@ class FakeDatabaseService:
         return self._bot_values.get((chat_id, self._key(chat_key)), default_value)
 
     async def save_bot_user(self, user_id: int, username: str | None, user_type: int = 0) -> None:
-        return None
+        self._bot_users[user_id] = username
+
+    async def get_user_id(self, username: str) -> int:
+        normalized = username.lstrip("@")
+        for user_id, stored_username in self._bot_users.items():
+            if stored_username == normalized or stored_username == username:
+                return user_id
+        raise ValueError(f"User {username} not found")
 
     async def get_chat_ids_by_key(self, chat_key) -> list[int]:
         normalized = self._key(chat_key)

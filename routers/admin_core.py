@@ -27,7 +27,6 @@ from aiogram.types import (
 from loguru import logger
 from sqlalchemy.orm import Session
 
-from db.repositories import ConfigRepository, ChatsRepository
 from scripts.update_report import update_top_holders_report
 from other.aiogram_tools import ChatInOption, get_username_link
 from other.config_reader import config
@@ -64,7 +63,7 @@ def _extract_mention_username(message: Message) -> str | None:
     return None
 
 
-def _resolve_mute_target(message: Message, session: Session) -> tuple[int, str] | None:
+async def _resolve_mute_target(message: Message, app_context: AppContext) -> tuple[int, str] | None:
     """Resolve mute/unmute target user. Priority: mention > reply.
 
     Returns (user_id, display_name) or None if no target found.
@@ -73,7 +72,9 @@ def _resolve_mute_target(message: Message, session: Session) -> tuple[int, str] 
     mention = _extract_mention_username(message)
     if mention:
         try:
-            user_id = ChatsRepository(session).get_user_id(mention)
+            if not app_context or not app_context.db_service:
+                raise ValueError("app_context with db_service required")
+            user_id = await app_context.db_service.get_user_id(mention)
             return user_id, mention
         except ValueError:
             return None
@@ -322,10 +323,11 @@ async def cmd_delete_dead_members(message: Message, state: FSMContext, app_conte
 
 @update_command_info("/mute", "Блокирует пользователя в текущей ветке (reply или @username)")
 @router.message(ChatInOption("moderate"), Command(commands=["mute"]))
-async def cmd_mute(message: Message, session: Session, app_context: AppContext, skyuser: SkyUser):
-    if not app_context or not app_context.admin_service:
-        raise ValueError("app_context with admin_service required")
+async def cmd_mute(message: Message, app_context: AppContext, skyuser: SkyUser):
+    if not app_context or not app_context.admin_service or not app_context.db_service:
+        raise ValueError("app_context with admin_service and db_service required")
     admin_service = cast(Any, app_context.admin_service)
+    db_service = cast(Any, app_context.db_service)
     if message.message_thread_id is None:
         await message.reply("This command must be used in topic.")
         return False
@@ -341,7 +343,7 @@ async def cmd_mute(message: Message, session: Session, app_context: AppContext, 
         return False
 
     # Resolve target: mention > reply
-    target = _resolve_mute_target(message, session)
+    target = await _resolve_mute_target(message, app_context)
     if target is None:
         await message.reply("Specify user by reply or @username")
         return
@@ -356,17 +358,18 @@ async def cmd_mute(message: Message, session: Session, app_context: AppContext, 
     # Use DI service
     admin_service.set_user_mute_by_key(chat_thread_key, user_id, end_time_str, user)
     all_mutes = admin_service.get_all_topic_mutes()
-    ConfigRepository(session).save_bot_value(0, BotValueTypes.TopicMutes, json.dumps(all_mutes))
+    await db_service.save_bot_value(0, BotValueTypes.TopicMutes, json.dumps(all_mutes))
 
     await message.reply(f"{user} was set mute for {delta} in topic {chat_thread_key}")
 
 
 @update_command_info("/unmute", "Снимает мьют пользователя в текущей ветке (reply или @username)")
 @router.message(ChatInOption("moderate"), Command(commands=["unmute"]))
-async def cmd_unmute(message: Message, session: Session, app_context: AppContext, skyuser: SkyUser):
-    if not app_context or not app_context.admin_service:
-        raise ValueError("app_context with admin_service required")
+async def cmd_unmute(message: Message, app_context: AppContext, skyuser: SkyUser):
+    if not app_context or not app_context.admin_service or not app_context.db_service:
+        raise ValueError("app_context with admin_service and db_service required")
     admin_service = cast(Any, app_context.admin_service)
+    db_service = cast(Any, app_context.db_service)
     if message.message_thread_id is None:
         await message.reply("This command must be used in topic.")
         return False
@@ -382,7 +385,7 @@ async def cmd_unmute(message: Message, session: Session, app_context: AppContext
         return False
 
     # Resolve target: mention > reply
-    target = _resolve_mute_target(message, session)
+    target = await _resolve_mute_target(message, app_context)
     if target is None:
         await message.reply("Specify user by reply or @username")
         return
@@ -396,17 +399,18 @@ async def cmd_unmute(message: Message, session: Session, app_context: AppContext
 
     admin_service.remove_user_mute_by_key(chat_thread_key, user_id)
     all_mutes = admin_service.get_all_topic_mutes()
-    ConfigRepository(session).save_bot_value(0, BotValueTypes.TopicMutes, json.dumps(all_mutes))
+    await db_service.save_bot_value(0, BotValueTypes.TopicMutes, json.dumps(all_mutes))
 
     await message.reply(f"{user} was unmuted in topic {chat_thread_key}")
 
 
 @update_command_info("/show_mute", "Показывает пользователей, которые заблокированы в текущей ветке")
 @router.message(ChatInOption("moderate"), Command(commands=["show_mute"]))
-async def cmd_show_mutes(message: Message, session: Session, app_context: AppContext, skyuser: SkyUser):
-    if not app_context or not app_context.admin_service:
-        raise ValueError("app_context with admin_service required")
+async def cmd_show_mutes(message: Message, app_context: AppContext, skyuser: SkyUser):
+    if not app_context or not app_context.admin_service or not app_context.db_service:
+        raise ValueError("app_context with admin_service and db_service required")
     admin_service = cast(Any, app_context.admin_service)
+    db_service = cast(Any, app_context.db_service)
     if message.message_thread_id is None:
         await message.reply("This command must be used in topic.")
         return False
@@ -450,7 +454,7 @@ async def cmd_show_mutes(message: Message, session: Session, app_context: AppCon
         for user_id in users_to_remove:
             admin_service.remove_user_mute_by_key(chat_thread_key, user_id)
         all_mutes = admin_service.get_all_topic_mutes()
-        ConfigRepository(session).save_bot_value(0, BotValueTypes.TopicMutes, json.dumps(all_mutes))
+        await db_service.save_bot_value(0, BotValueTypes.TopicMutes, json.dumps(all_mutes))
 
     if muted_users:
         mute_list = "\n".join(muted_users)
@@ -515,12 +519,22 @@ async def cmd_del_message(message: Message, bot: Bot, app_context: AppContext, s
 
 @router.message_reaction(ChatInOption("moderate"))
 async def message_reaction(
-    message: MessageReactionUpdated, bot: Bot, session: Session, app_context: AppContext, skyuser: SkyUser | None = None
+    message: MessageReactionUpdated,
+    bot: Bot,
+    session: Any = None,
+    app_context: AppContext | None = None,
+    skyuser: SkyUser | None = None,
 ):
-    if not app_context or not app_context.admin_service or not app_context.message_thread_cache_service:
-        raise ValueError("app_context with admin_service and message_thread_cache_service required")
+    if (
+        not app_context
+        or not app_context.admin_service
+        or not app_context.message_thread_cache_service
+        or not app_context.db_service
+    ):
+        raise ValueError("app_context with admin_service, message_thread_cache_service, and db_service required")
     admin_service = cast(Any, app_context.admin_service)
     message_thread_cache_service = cast(Any, app_context.message_thread_cache_service)
+    db_service = cast(Any, app_context.db_service)
     message_any = cast(Any, message)
     if skyuser is None:
         user = message_any.user if hasattr(message_any, "user") else None
@@ -608,7 +622,7 @@ async def message_reaction(
 
         admin_service.set_user_mute_by_key(chat_thread_key, user_id, end_time_str, user)
         all_mutes = admin_service.get_all_topic_mutes()
-        ConfigRepository(session).save_bot_value(0, BotValueTypes.TopicMutes, json.dumps(all_mutes))
+        await db_service.save_bot_value(0, BotValueTypes.TopicMutes, json.dumps(all_mutes))
 
         await _send_topic_message(
             bot, message_any.chat.id, thread_id, f"{user} was set mute for {delta} in topic {chat_thread_key}"
@@ -709,21 +723,27 @@ async def cmd_send_me(message: Message, bot: Bot, skyuser: SkyUser):
     "/alert_me", "Делает подписку на упоминания и сообщает об упоминаниях в личку(alarm)", 3, "alert_me"
 )
 @router.message(Command(commands=["alert_me"]))
-async def cmd_set_alert_me(message: Message, session: Session, app_context: AppContext):
-    if not app_context or not app_context.notification_service or not app_context.utils_service:
-        raise ValueError("app_context with notification_service and utils_service required")
+async def cmd_set_alert_me(message: Message, app_context: AppContext):
+    if (
+        not app_context
+        or not app_context.notification_service
+        or not app_context.utils_service
+        or not app_context.db_service
+    ):
+        raise ValueError("app_context with notification_service, utils_service, and db_service required")
     if not message.from_user:
         await message.reply("Cannot identify user.")
         return
     notification_service = cast(Any, app_context.notification_service)
     utils_service = cast(Any, app_context.utils_service)
+    db_service = cast(Any, app_context.db_service)
     chat_id = message.chat.id
     user_id = message.from_user.id
 
     # Use DI service
     is_subscribed = notification_service.toggle_alert_user(chat_id, user_id)
     alert_users = notification_service.get_alert_users(chat_id)
-    ConfigRepository(session).save_bot_value(chat_id, BotValueTypes.AlertMe, json.dumps(alert_users))
+    await db_service.save_bot_value(chat_id, BotValueTypes.AlertMe, json.dumps(alert_users))
     msg = await message.reply("Added" if is_subscribed else "Removed")
 
     await utils_service.sleep_and_delete(message, 60)
