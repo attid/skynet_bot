@@ -89,7 +89,7 @@ async def check_eurmtl_b13_negative(session: Session, ss: Optional[Any] = None) 
         return None
 
     if b13_value < 0:
-        MessageRepository(session).add_message(
+        await MessageRepository(session).async_add_message(
             MTLChats.SignGroup, f"⚠️ Сумма отрицательная: {b13_value}", topic_id=59548
         )
     return b13_value
@@ -448,7 +448,7 @@ async def update_top_holders_report(session: Session):
     for record in records:
         if record[0] != "0":
             text = f'You need update votes <a href="{gd_link}">more info</a>'
-            MessageRepository(session).add_message(MTLChats.SignGroup, text, use_alarm=1, topic_id=59558)
+            await MessageRepository(session).async_add_message(MTLChats.SignGroup, text, use_alarm=1, topic_id=59558)
             break
 
     logger.info(f"report topholders all done {now}")
@@ -563,7 +563,7 @@ async def update_mmwb_report(session: Session):
     for record in records:
         value = float(record[0].replace(",", "."))
         if value < 0.2 or value > 0.8:
-            MessageRepository(session).send_admin_message(f"update_mmwb_report balance error {value}")
+            await MessageRepository(session).async_send_admin_message(f"update_mmwb_report balance error {value}")
 
     await wks.update(range_name="Q1", values=[[now.strftime("%d.%m.%Y %H:%M:%S")]])
     logger.info(f"update mmwb_report all done {now}")
@@ -856,13 +856,13 @@ async def lite_report(session_pool):
     await save_assets([MTLAssets.mtl_asset, MTLAssets.mtlap_asset, MTLAssets.mtlrect_asset, MTLAssets.eurmtl_asset])
     await asyncio.sleep(10)
 
-    with session_pool() as session:
+    async with session_pool() as session:
         await update_main_report(session)
         await asyncio.sleep(10)
         await update_top_holders_report(session)
         await asyncio.sleep(10)
         await update_mmwb_report(session)
-        session.commit()
+        await session.commit()
         # await update_wallet_report(session)
         # await update_wallet_report2(session)
 

@@ -200,6 +200,7 @@ def scheduler_jobs(
     message_session_pool = async_session_pool or session_pool
     usdm_session_pool = async_session_pool or session_pool
     check_bot_session_pool = async_session_pool or session_pool
+    report_session_pool = async_session_pool or session_pool
     scheduler.add_job(
         cmd_send_message_1m, "interval", seconds=10, args=(bot, message_session_pool), misfire_grace_time=360
     )
@@ -233,7 +234,7 @@ def scheduler_jobs(
     # Другие задачи
     # 17 8 * * * /home/skynet_bot/deploy/mtl_backup.sh > /dev/null*
     # 25 8 * * * /home/skynet_bot/deploy/report.sh > /dev/null
-    scheduler.add_job(lite_report, "cron", hour=8, minute=10, args=(session_pool,), misfire_grace_time=360)
+    scheduler.add_job(lite_report, "cron", hour=8, minute=10, args=(report_session_pool,), misfire_grace_time=360)
 
     scheduler.add_job(time_clear, "interval", hours=10, args=(bot, db_service), misfire_grace_time=360, jitter=120)
     # 30 */8 * * * /opt/firebird/bin/isql -i /db/archive.sql
