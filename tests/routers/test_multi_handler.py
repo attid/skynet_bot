@@ -1,8 +1,9 @@
+import json
 import pytest
 import datetime
 from aiogram import types
 
-from routers.multi_handler import router as multi_router, on_startup
+from routers.multi_handler import router as multi_router, command_config_loads, on_startup, run_entry_channel_check
 from tests.conftest import RouterTestMiddleware
 from other.constants import BotValueTypes, MTLChats
 
@@ -228,3 +229,28 @@ async def test_on_startup_triggers_loads(monkeypatch):
     # Verify command_config_loads was called with the app_context
     assert len(called_with) == 1
     assert called_with[0] is fake_app_context
+
+
+@pytest.mark.asyncio
+async def test_command_config_loads_restores_weighted_vote_weights(router_app_context):
+    address = "GWEIGHTED"
+    saved_votes = {address: {"@user": 2, "NEED": {"50": 2, "75": 2, "100": 2}}}
+    await router_app_context.db_service.save_bot_value(0, BotValueTypes.Votes, json.dumps(saved_votes))
+
+    await command_config_loads(router_app_context)
+
+    assert router_app_context.voting_service.get_vote_weights(address) == saved_votes[address]
+
+
+@pytest.mark.asyncio
+async def test_command_config_loads_restores_entry_channel_value(router_app_context):
+    chat_id = MTLChats.TestGroup
+    required_channel = "-100999"
+    await router_app_context.db_service.save_bot_value(chat_id, BotValueTypes.EntryChannel, required_channel)
+
+    await command_config_loads(router_app_context)
+    checked_count, action_count = await run_entry_channel_check(router_app_context.bot, chat_id, router_app_context)
+
+    assert checked_count == 0
+    assert action_count == 0
+    assert router_app_context.group_service.get_members.called

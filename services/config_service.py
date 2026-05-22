@@ -52,6 +52,7 @@ class ConfigService:
         self._welcome_messages: dict[int, Any] = {}
         self._welcome_buttons: dict[int, Any] = {}
         self._delete_income: dict[int, Any] = {}
+        self._entry_channels: dict[int, Any] = {}
 
     def get_config(self, chat_id: int) -> BotConfig:
         """
@@ -247,6 +248,27 @@ class ConfigService:
         """Bulk load delete income configs from global_data."""
         with self._lock:
             self._delete_income.update(data)
+
+    # Entry channel methods
+    def get_entry_channel(self, chat_id: int) -> Optional[Any]:
+        """Get required entry channel for chat."""
+        with self._lock:
+            return self._entry_channels.get(chat_id)
+
+    def set_entry_channel(self, chat_id: int, channel: Any) -> None:
+        """Set required entry channel for chat cache."""
+        with self._lock:
+            self._entry_channels[chat_id] = channel
+
+    def remove_entry_channel(self, chat_id: int) -> None:
+        """Remove required entry channel from chat cache."""
+        with self._lock:
+            self._entry_channels.pop(chat_id, None)
+
+    def load_entry_channels(self, data: dict[int, Any]) -> None:
+        """Bulk load required entry channels."""
+        with self._lock:
+            self._entry_channels.update(data)
 
     def _get_common_keys(self) -> list[str]:
         """Get list of common config keys to preload."""

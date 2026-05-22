@@ -200,6 +200,30 @@ class TestDeleteIncome:
         assert service.get_delete_income(5) == {"nested": {"data": True}}
 
 
+class TestEntryChannel:
+    """Tests for entry channel methods."""
+
+    def test_get_entry_channel_returns_none_for_empty(self, service):
+        assert service.get_entry_channel(123) is None
+
+    def test_set_and_get_entry_channel(self, service):
+        service.set_entry_channel(123, "-100999")
+
+        assert service.get_entry_channel(123) == "-100999"
+
+    def test_remove_entry_channel(self, service):
+        service.set_entry_channel(123, "@channel")
+        service.remove_entry_channel(123)
+
+        assert service.get_entry_channel(123) is None
+
+    def test_load_entry_channels_bulk(self, service):
+        service.load_entry_channels({123: "-100999", 456: "@channel"})
+
+        assert service.get_entry_channel(123) == "-100999"
+        assert service.get_entry_channel(456) == "@channel"
+
+
 class TestAsyncPersistence:
     """Tests for async DB-backed config service writes."""
 

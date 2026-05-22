@@ -345,7 +345,7 @@ async def new_chat_member(event: ChatMemberUpdated, session: AsyncSession, bot: 
         )
         return
 
-    required_channel = config_service.load_value(chat_id, "entry_channel")
+    required_channel = config_service.get_entry_channel(chat_id)
 
     if required_channel:
         membership_ok, _ = await group_service.enforce_entry_channel(bot, chat_id, new_user_id, required_channel)

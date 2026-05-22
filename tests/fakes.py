@@ -554,6 +554,7 @@ class FakeConfigService:
         self._welcome_messages = {}
         self._welcome_buttons = {}
         self._delete_income = {}
+        self._entry_channels = {}
         # Async methods for legacy interface
         self.save_bot_value = FakeAsyncMethod(side_effect=self._save_bot_value)
         self.load_bot_value = FakeAsyncMethod(side_effect=self._load_bot_value)
@@ -664,6 +665,27 @@ class FakeConfigService:
 
     def remove_delete_income(self, chat_id, session=None):
         self._delete_income.pop(chat_id, None)
+
+    def load_delete_income(self, data):
+        self._delete_income.update(data)
+
+    def get_entry_channel(self, chat_id):
+        return self._entry_channels.get(chat_id)
+
+    def set_entry_channel(self, chat_id, channel, session=None):
+        self._entry_channels[chat_id] = channel
+
+    def remove_entry_channel(self, chat_id, session=None):
+        self._entry_channels.pop(chat_id, None)
+
+    def load_entry_channels(self, data):
+        self._entry_channels.update(data)
+
+    def load_welcome_messages(self, data):
+        self._welcome_messages.update(data)
+
+    def load_welcome_buttons(self, data):
+        self._welcome_buttons.update(data)
 
     def load_value(self, chat_id, key, default=None):
         """Synchronous load_value for DI service interface."""
@@ -1069,6 +1091,12 @@ class FakeVotingService:
     def get_first_vote_chats(self):
         return self._first_vote.copy()
 
+    def load_first_vote(self, chat_ids):
+        self._first_vote = chat_ids.copy()
+
+    def load_votes(self, votes_data):
+        self._poll_votes = {k: v.copy() if isinstance(v, dict) else v for k, v in votes_data.items()}
+
     def get_first_vote_data(self, chat_id):
         return self._first_vote_data.get(chat_id, {}).copy()
 
@@ -1119,6 +1147,12 @@ class FakeNotificationService:
     def disable_join_notify(self, chat_id: int) -> None:
         self._notify_join.pop(chat_id, None)
 
+    def get_all_join_notify(self) -> dict:
+        return self._notify_join.copy()
+
+    def load_notify_join(self, data: dict) -> None:
+        self._notify_join = data.copy()
+
     def is_message_notify_enabled(self, chat_id: int) -> bool:
         return bool(self._notify_message.get(chat_id))
 
@@ -1133,6 +1167,9 @@ class FakeNotificationService:
 
     def get_all_message_notify(self) -> dict:
         return self._notify_message.copy()
+
+    def load_notify_message(self, data: dict) -> None:
+        self._notify_message = data.copy()
 
     # Alert me methods (per-chat user alert subscriptions)
     def get_alert_users(self, chat_id: int) -> list:

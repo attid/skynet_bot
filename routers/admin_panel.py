@@ -209,6 +209,8 @@ def _sync_feature_toggle(app_context: AppContext, feature: str, chat_id: int, en
             app_context.notification_service.set_join_notify(chat_id, "1")
         elif enum_key == BotValueTypes.DeleteIncome and app_context.config_service:
             app_context.config_service.set_delete_income(chat_id, "1")
+        elif enum_key == BotValueTypes.EntryChannel and app_context.config_service:
+            app_context.config_service.set_entry_channel(chat_id, "1")
     else:
         if enum_key == BotValueTypes.FirstVote and app_context.voting_service:
             app_context.voting_service.disable_first_vote(chat_id)
@@ -218,6 +220,8 @@ def _sync_feature_toggle(app_context: AppContext, feature: str, chat_id: int, en
             app_context.notification_service.disable_join_notify(chat_id)
         elif enum_key == BotValueTypes.DeleteIncome and app_context.config_service:
             app_context.config_service.remove_delete_income(chat_id)
+        elif enum_key == BotValueTypes.EntryChannel and app_context.config_service:
+            app_context.config_service.remove_entry_channel(chat_id)
 
 
 def _format_admin_name(admin_user: User) -> str:

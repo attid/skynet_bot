@@ -96,7 +96,7 @@ def _get_entry_channel(ctx, chat_id: int) -> Optional[str]:
     """Get entry channel config using DI. Raises error if ctx not available."""
     if not ctx or not ctx.config_service:
         raise ValueError("app_context with config_service required")
-    return ctx.config_service.load_value(chat_id, "entry_channel")
+    return ctx.config_service.get_entry_channel(chat_id)
 
 
 # =============================================================================
@@ -182,6 +182,7 @@ async def command_config_loads(app_context):
         app_context.feature_flags.set_feature(chat_id, "delete_income", True, persist=False)
 
     entry_channel_data = await db_service.get_chat_dict_by_key(BotValueTypes.EntryChannel)
+    app_context.config_service.load_entry_channels(entry_channel_data)
     for chat_id in entry_channel_data:
         app_context.feature_flags.set_feature(chat_id, "entry_channel", True, persist=False)
 
@@ -198,7 +199,7 @@ async def command_config_loads(app_context):
 
     # Load votes data
     votes = json.loads(await db_service.load_bot_value(0, BotValueTypes.Votes, "{}"))
-    app_context.voting_service.load_votes(votes)
+    app_context.voting_service.set_all_vote_weights(votes)
 
     # Load first_vote into voting service
     first_vote_chat_ids = await db_service.get_chat_ids_by_key(BotValueTypes.FirstVote)
@@ -462,6 +463,8 @@ def _sync_toggle_removal(ctx, db_value_type: BotValueTypes, chat_id: int):
         ctx.notification_service.disable_message_notify(chat_id)
     elif db_value_type == BotValueTypes.DeleteIncome and ctx.config_service:
         ctx.config_service.remove_delete_income(chat_id)
+    elif db_value_type == BotValueTypes.EntryChannel and ctx.config_service:
+        ctx.config_service.remove_entry_channel(chat_id)
 
 
 def _sync_toggle_addition(ctx, db_value_type: BotValueTypes, chat_id: int, value: str):
@@ -479,6 +482,8 @@ def _sync_toggle_addition(ctx, db_value_type: BotValueTypes, chat_id: int, value
         ctx.notification_service.set_message_notify(chat_id, value)
     elif db_value_type == BotValueTypes.DeleteIncome and ctx.config_service:
         ctx.config_service.set_delete_income(chat_id, value)
+    elif db_value_type == BotValueTypes.EntryChannel and ctx.config_service:
+        ctx.config_service.set_entry_channel(chat_id, value)
 
 
 async def handle_entry_channel_toggle(message: Message, command_info, session, app_context=None):

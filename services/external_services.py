@@ -665,7 +665,7 @@ class GroupService:
     async def run_entry_channel_check(self, bot, chat_id, app_context):
         import asyncio
 
-        required_channel = app_context.config_service.load_value(chat_id, "entry_channel")
+        required_channel = app_context.config_service.get_entry_channel(chat_id)
         if not required_channel:
             raise ValueError("entry_channel setting is not enabled for this chat")
 
