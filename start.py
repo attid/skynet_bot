@@ -22,7 +22,7 @@ from loguru import logger
 from redis.asyncio import Redis
 from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import sessionmaker
 
 # Local application imports
 from db.session import AsyncSessionPool, async_engine
@@ -278,18 +278,6 @@ async def load_globals(session_pool, bot: Bot, app_context):
             logger.warning(f"spam_status_service preload failed: {e}")
     with suppress(TelegramBadRequest):
         await bot.send_message(chat_id=MTLChats.ITolstov, text="globals loaded")
-
-
-def add_bot_users(session: Session, user_id: int, username: str | None, new_user_type: int = 0):
-    """Добавляет или обновляет пользователя в списке с логированием"""
-    try:
-        from services import app_context as app_context_module
-
-        if app_context_module.app_context and app_context_module.app_context.spam_status_service:
-            app_context_module.app_context.spam_status_service.preload_statuses({user_id: new_user_type})
-    except Exception as e:
-        logger.warning(f"spam_status_service cache update failed: {e}")
-    ChatsRepository(session).save_bot_user(user_id, username, new_user_type)
 
 
 async def async_add_bot_users(session: AsyncSession, user_id: int, username: str | None, new_user_type: int = 0):

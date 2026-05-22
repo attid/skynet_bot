@@ -36,7 +36,7 @@ from db.repositories import MessageRepository
 
 # from routers.multi_handler import check_membership, enforce_entry_channel
 from routers.moderation import UnbanCallbackData
-from start import add_bot_users, async_add_bot_users
+from start import async_add_bot_users
 from other.aiogram_tools import get_username_link, get_chat_link
 from other.constants import MTLChats, BotValueTypes
 from services.command_registry_service import update_command_info
@@ -488,7 +488,7 @@ async def new_chat_member(event: ChatMemberUpdated, session: Session | AsyncSess
 @router.chat_member(ChatMemberUpdatedFilter(IS_MEMBER >> IS_NOT_MEMBER))
 async def left_chat_member(
     event: ChatMemberUpdated,
-    session: Session,
+    session: AsyncSession,
     bot: Bot,
     app_context: Any = None,
     skyuser: SkyUser | None = None,
@@ -538,10 +538,7 @@ async def left_chat_member(
             in_other_chats = c1 or c2 or c3
 
             if not in_other_chats:
-                if _is_async_session(session):
-                    await async_add_bot_users(session, event.old_chat_member.user.id, None, 2)
-                else:
-                    add_bot_users(cast(Session, session), event.old_chat_member.user.id, None, 2)
+                await async_add_bot_users(session, event.old_chat_member.user.id, None, 2)
 
         kb_unban = InlineKeyboardMarkup(
             inline_keyboard=[
@@ -713,7 +710,7 @@ async def cmd_recaptcha(
 
 
 @router.callback_query(F.data == "ReCaptcha")
-async def cq_recaptcha(query: CallbackQuery, session: Session, bot: Bot, app_context: Any = None):
+async def cq_recaptcha(query: CallbackQuery, session: AsyncSession, bot: Bot, app_context: Any = None):
     if not isinstance(query.message, Message):
         await query.answer("Message not accessible", show_alert=True)
         return
@@ -734,7 +731,7 @@ async def cq_recaptcha(query: CallbackQuery, session: Session, bot: Bot, app_con
 
 @router.chat_member(ChatMemberUpdatedFilter(PROMOTED_TRANSITION))
 @router.chat_member(ChatMemberUpdatedFilter(ADMINISTRATOR >> MEMBER))
-async def cmd_update_admin(event: ChatMemberUpdated, session: Session, bot: Bot, app_context: Any = None):
+async def cmd_update_admin(event: ChatMemberUpdated, session: AsyncSession, bot: Bot, app_context: Any = None):
     if not app_context or not app_context.admin_service:
         raise ValueError("app_context with admin_service required")
     admin_service = cast(Any, app_context.admin_service)
@@ -743,12 +740,7 @@ async def cmd_update_admin(event: ChatMemberUpdated, session: Session, bot: Bot,
     # Chat is accessible if we received this update - remove from inaccessible list
     from routers.admin_panel import async_unmark_chat_accessible
 
-    if _is_async_session(session):
-        await async_unmark_chat_accessible(chat_id, app_context)
-    else:
-        from routers.admin_panel import unmark_chat_accessible
-
-        unmark_chat_accessible(chat_id, session)
+    await async_unmark_chat_accessible(chat_id, app_context)
 
     members = await event.chat.get_administrators()
     new_admins = [member.user.id for member in members]
