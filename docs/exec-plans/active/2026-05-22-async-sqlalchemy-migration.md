@@ -172,12 +172,14 @@
     - Перевести `tests/db/test_repositories.py` на `pytest.mark.asyncio`.
     - Использовать `sqlite+aiosqlite:///:memory:` только если добавить dev dependency `aiosqlite`; иначе mock AsyncSession или PostgreSQL test fixture.
     - Не использовать реальные внешние DB.
+      - Сделано: `tests/db/test_repositories.py` uses `create_async_engine("sqlite+aiosqlite:///:memory:")`, async repository methods and `await session.commit()`.
     - Проверка: `uv run pytest tests/db -q`.
 
 14. [ ] Шаг 14 — обновить зависимости.
     - Убедиться, что `asyncpg` остается в dependencies.
     - Если sync PostgreSQL runtime больше не нужен, удалить `psycopg2-binary`.
     - Если async SQLite tests выбраны, добавить `aiosqlite` в dev dependencies.
+      - Сделано: `aiosqlite` added to dev dependency group for async repository integration tests.
     - Выполнить `uv lock`.
 
 15. [ ] Шаг 15 — статическая проверка call sites.

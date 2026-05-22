@@ -1,203 +1,183 @@
 import json
-import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from shared.infrastructure.database.models import Base, Chat, ChatMember, BotUsers
-from db.repositories.config import ConfigRepository
-from db.repositories.chats import ChatsRepository
-from other.pyro_tools import GroupMember
 from datetime import datetime
 
-# --- Fixtures ---
+import pytest
+import pytest_asyncio
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.pool import StaticPool
+
+from db.repositories.chats import ChatsRepository
+from db.repositories.config import ConfigRepository
+from other.pyro_tools import GroupMember
+from shared.infrastructure.database.models import Base, BotUsers, Chat, ChatMember
 
 
-@pytest.fixture
-def db_session():
-    # Use in-memory SQLite for testing
-    engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine)
-    session = Session()
-    yield session
-    session.close()
+@pytest_asyncio.fixture
+async def db_session():
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    Session = async_sessionmaker(engine, expire_on_commit=False)
+    async with Session() as session:
+        yield session
+
+    await engine.dispose()
 
 
-# --- ConfigRepository Tests ---
-
-
-def test_save_and_load_bot_value(db_session):
+@pytest.mark.asyncio
+async def test_save_and_load_bot_value(db_session):
     repo = ConfigRepository(db_session)
     chat_id = 123
     chat_key = 1
     value = "test_value"
 
-    # Test saving simple string
-    repo.save_bot_value(chat_id, chat_key, value)
-    db_session.commit()
-    loaded_value = repo.load_bot_value(chat_id, chat_key)
+    await repo.async_save_bot_value(chat_id, chat_key, value)
+    await db_session.commit()
+    loaded_value = await repo.async_load_bot_value(chat_id, chat_key)
     assert loaded_value == value
 
-    # Test updating value
     new_value = "new_test_value"
-    repo.save_bot_value(chat_id, chat_key, new_value)
-    db_session.commit()
-    loaded_value = repo.load_bot_value(chat_id, chat_key)
+    await repo.async_save_bot_value(chat_id, chat_key, new_value)
+    await db_session.commit()
+    loaded_value = await repo.async_load_bot_value(chat_id, chat_key)
     assert loaded_value == new_value
 
-    # Test deleting value
-    repo.save_bot_value(chat_id, chat_key, None)
-    db_session.commit()
-    loaded_value = repo.load_bot_value(chat_id, chat_key, default_value="default")
+    await repo.async_save_bot_value(chat_id, chat_key, None)
+    await db_session.commit()
+    loaded_value = await repo.async_load_bot_value(chat_id, chat_key, default_value="default")
     assert loaded_value == "default"
 
 
-def test_json_handling(db_session):
+@pytest.mark.asyncio
+async def test_json_handling(db_session):
     repo = ConfigRepository(db_session)
     chat_id = 456
     chat_key = 2
 
-    # Test JSON object
     json_value = {"key": "value", "list": [1, 2, 3]}
-    repo.save_bot_value(chat_id, chat_key, json_value)
-    db_session.commit()
+    await repo.async_save_bot_value(chat_id, chat_key, json_value)
+    await db_session.commit()
 
-    loaded_value = repo.load_bot_value(chat_id, chat_key)
-    # The repository might return JSON string or dict depending on implementation/DB type.
-    # Postgres JSONB returns dict, but our logic handles string conversion.
-    # In SQLite, it stores as JSON type or String depending on SA support.
-    # ConfigRepository.load_bot_value logic:
-    # if record.chat_value is dict/list -> return json.dumps (to match old behavior?)
-    # OR return raw object? Let's check implementation.
-    # Implementation: if isinstance(val, (dict, list)): return json.dumps(val)
+    loaded_value = await repo.async_load_bot_value(chat_id, chat_key)
     assert json.loads(loaded_value) == json_value
 
 
-def test_dict_value_operations(db_session):
+@pytest.mark.asyncio
+async def test_dict_value_operations(db_session):
     repo = ConfigRepository(db_session)
     chat_id = 789
     chat_key = 3
 
-    # Update dict value (should create new record)
-    repo.update_dict_value(chat_id, chat_key, "field1", "value1")
-    db_session.commit()
+    await repo.async_update_dict_value(chat_id, chat_key, "field1", "value1")
+    await db_session.commit()
 
-    val = repo.get_dict_value(chat_id, chat_key, "field1")
+    val = await repo.async_get_dict_value(chat_id, chat_key, "field1")
     assert val == "value1"
 
-    # Update another field
-    repo.update_dict_value(chat_id, chat_key, "field2", "value2")
-    db_session.commit()
+    await repo.async_update_dict_value(chat_id, chat_key, "field2", "value2")
+    await db_session.commit()
 
-    assert repo.get_dict_value(chat_id, chat_key, "field1") == "value1"
-    assert repo.get_dict_value(chat_id, chat_key, "field2") == "value2"
-    assert repo.get_dict_value(chat_id, chat_key, "field3", "def") == "def"
+    assert await repo.async_get_dict_value(chat_id, chat_key, "field1") == "value1"
+    assert await repo.async_get_dict_value(chat_id, chat_key, "field2") == "value2"
+    assert await repo.async_get_dict_value(chat_id, chat_key, "field3", "def") == "def"
 
 
-def test_kv_store(db_session):
+@pytest.mark.asyncio
+async def test_kv_store(db_session):
     repo = ConfigRepository(db_session)
     key = "test_key"
     value = {"data": 123}
 
-    repo.save_kv_value(key, value)
-    db_session.commit()
+    await repo.async_save_kv_value(key, value)
+    await db_session.commit()
 
-    loaded = repo.load_kv_value(key)
+    loaded = await repo.async_load_kv_value(key)
     assert loaded == value
 
-    repo.save_kv_value(key, "updated")
-    db_session.commit()
-    assert repo.load_kv_value(key) == "updated"
+    await repo.async_save_kv_value(key, "updated")
+    await db_session.commit()
+    assert await repo.async_load_kv_value(key) == "updated"
 
 
-# --- ChatsRepository Tests ---
-
-
-def test_update_chat_info(db_session):
+@pytest.mark.asyncio
+async def test_update_chat_info(db_session):
     repo = ChatsRepository(db_session)
     chat_id = 1001
 
     member1 = GroupMember(user_id=1, username="user1", full_name="User One", is_admin=True)
     member2 = GroupMember(user_id=2, username="user2", full_name="User Two", is_admin=False)
 
-    # Initial update
-    repo.update_chat_info(chat_id, [member1, member2])
-    db_session.commit()
+    await repo.async_update_chat_info(chat_id, [member1, member2])
+    await db_session.commit()
 
-    # Verify Chat created
-    chat = db_session.query(Chat).filter_by(chat_id=chat_id).first()
+    chat = (await db_session.execute(select(Chat).where(Chat.chat_id == chat_id))).scalar_one_or_none()
     assert chat is not None
     assert 1 in chat.admins
     assert 2 not in chat.admins
 
-    # Verify Members created
-    members = db_session.query(ChatMember).filter_by(chat_id=chat_id).all()
+    members = (await db_session.execute(select(ChatMember).where(ChatMember.chat_id == chat_id))).scalars().all()
     assert len(members) == 2
 
-    # Verify BotUsers created
-    users = db_session.query(BotUsers).all()
+    users = (await db_session.execute(select(BotUsers))).scalars().all()
     assert len(users) == 2
 
-    # Test update (member2 becomes admin, member1 leaves?)
-    # update_chat_info doesn't automatically remove missing members unless clear_users=True,
-    # but it updates existing.
-
     member2_updated = GroupMember(user_id=2, username="user2", full_name="User Two", is_admin=True)
-    repo.update_chat_info(chat_id, [member2_updated])
-    db_session.commit()
+    await repo.async_update_chat_info(chat_id, [member2_updated])
+    await db_session.commit()
 
-    chat = db_session.query(Chat).filter_by(chat_id=chat_id).first()
-    # Logic in update_chat_info:
-    # if member.is_admin: admin_ids.add
-    # else: admin_ids.discard
-    # It starts with set(chat.admins).
-    # member1 was in admins. We didn't pass member1 in new list.
-    # So member1 should still be in admins?
-    # No, usually update_chat_info is called with FULL list from API.
-    # But if we pass partial list, it only updates those in list.
-    # Correct logic check:
+    chat = (await db_session.execute(select(Chat).where(Chat.chat_id == chat_id))).scalar_one()
     assert 2 in chat.admins
-    assert 1 in chat.admins  # Since we didn't process user 1 in second call to remove him or unset admin
+    assert 1 in chat.admins
 
 
-def test_add_and_remove_user(db_session):
+@pytest.mark.asyncio
+async def test_add_and_remove_user(db_session):
     repo = ChatsRepository(db_session)
     chat_id = 2002
     member = GroupMember(user_id=10, username="joiner", full_name="Joiner", is_admin=False)
 
-    repo.add_user_to_chat(chat_id, member)
-    db_session.commit()
+    await repo.async_add_user_to_chat(chat_id, member)
+    await db_session.commit()
 
-    chat_member = db_session.query(ChatMember).filter_by(chat_id=chat_id, user_id=10).first()
+    chat_member = (
+        await db_session.execute(select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.user_id == 10))
+    ).scalar_one_or_none()
     assert chat_member is not None
     assert chat_member.left_at is None
 
-    repo.remove_user_from_chat(chat_id, 10)
-    db_session.commit()
+    await repo.async_remove_user_from_chat(chat_id, 10)
+    await db_session.commit()
 
-    chat_member = db_session.query(ChatMember).filter_by(chat_id=chat_id, user_id=10).first()
+    chat_member = (
+        await db_session.execute(select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.user_id == 10))
+    ).scalar_one()
     assert chat_member.left_at is not None
 
 
-def test_get_users_joined_last_day(db_session):
+@pytest.mark.asyncio
+async def test_get_users_joined_last_day(db_session):
     repo = ChatsRepository(db_session)
     chat_id = 3003
 
-    # Add user joined now
     m1 = GroupMember(user_id=100, username="u1", full_name="U1", is_admin=False)
-    repo.add_user_to_chat(chat_id, m1)
-    db_session.commit()
+    await repo.async_add_user_to_chat(chat_id, m1)
+    await db_session.commit()
 
-    # Manually simulate old user
     old_date = datetime(2020, 1, 1)
     m2 = GroupMember(user_id=101, username="u2", full_name="U2", is_admin=False)
-    repo.add_user_to_chat(chat_id, m2)
-    db_session.commit()
+    await repo.async_add_user_to_chat(chat_id, m2)
+    await db_session.commit()
 
-    # Hack to update created_at
-    db_member = db_session.query(ChatMember).filter_by(user_id=101).first()
+    db_member = (await db_session.execute(select(ChatMember).where(ChatMember.user_id == 101))).scalar_one()
     db_member.created_at = old_date
-    db_session.commit()
+    await db_session.commit()
 
-    joined = repo.get_users_joined_last_day(chat_id)
+    joined = await repo.async_get_users_joined_last_day(chat_id)
     assert len(joined) == 1
     assert joined[0].user_id == 100
