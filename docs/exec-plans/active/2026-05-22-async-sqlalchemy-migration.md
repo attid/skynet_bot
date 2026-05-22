@@ -118,7 +118,9 @@
         - `routers/talk_handlers.py`: pinned URL для decode загружается через `ConfigRepository.async_load_bot_value`.
         - `routers/polls.py`: message/channel/poll-answer handlers используют async `PollService`/`ConfigRepository`; poll callback больше не требует injected sync session и открывает async session через service.
         - `services/external_services.py`: `PollService` стал async; при `session=None` открывает `AsyncSessionPool` сам и коммитит standalone writes.
-        - `start.py`: `channel_post` и `poll_answer` middleware переключены на `AsyncSessionPool`.
+        - `start.py`: `message` sync middleware переведен в lazy mode; `channel_post` и `poll_answer` middleware переключены на `AsyncSessionPool`.
+        - `services/database_service.py`: добавлен async `save_bot_user`; `/start` пишет через `app_context.db_service`, без injected sync session.
+        - `services/config_service.py`: добавлены async persistence methods для welcome/delete-income cache paths.
         - `tests/fakes.py`: `FakeSession` поддерживает awaited `execute/commit/rollback/flush` для async repository/router tests.
     - Batch 3: stellar/time: `routers/stellar.py`, `routers/time_handlers.py`.
     - После каждого batch запускать focused tests и `just types` если объем ошибок контролируем.

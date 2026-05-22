@@ -266,12 +266,17 @@ class FakeSession:
         # Convert statement to string for analysis
         stmt_str = str(statement)
 
-        # Handle DELETE statements
-        if "DELETE" in stmt_str.upper():
-            return FakeResult(None)
-
         # Extract bound parameters from SQLAlchemy statement
         params = self._extract_bound_params(statement)
+
+        # Handle DELETE statements
+        if "DELETE" in stmt_str.upper():
+            if "bot_config" in stmt_str.lower():
+                chat_id = params.get("chat_id")
+                chat_key = params.get("chat_key")
+                if chat_id is not None and chat_key is not None:
+                    self._bot_configs.pop((chat_id, chat_key), None)
+            return FakeResult(None)
 
         # Handle SELECT on BotConfig
         if "bot_config" in stmt_str.lower():
@@ -1535,6 +1540,9 @@ class FakeDatabaseService:
 
     async def load_bot_value(self, chat_id: int, chat_key, default_value=""):
         return self._bot_values.get((chat_id, self._key(chat_key)), default_value)
+
+    async def save_bot_user(self, user_id: int, username: str | None, user_type: int = 0) -> None:
+        return None
 
 
 class FakeSelfmodService:

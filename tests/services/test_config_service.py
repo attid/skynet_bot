@@ -4,8 +4,10 @@
 import pytest
 from unittest.mock import Mock
 
+from other.constants import BotValueTypes
 from services.config_service import ConfigService
 from services.interfaces.repositories import IConfigRepository
+from tests.fakes import FakeSession
 
 
 @pytest.fixture
@@ -196,3 +198,38 @@ class TestDeleteIncome:
         assert service.get_delete_income(3) == "string"
         assert service.get_delete_income(4) == [1, 2, 3]
         assert service.get_delete_income(5) == {"nested": {"data": True}}
+
+
+class TestAsyncPersistence:
+    """Tests for async DB-backed config service writes."""
+
+    @pytest.mark.asyncio
+    async def test_async_set_welcome_message_updates_cache_and_db(self):
+        service = ConfigService()
+        session = FakeSession()
+
+        await service.async_set_welcome_message(123, "Hello", session)
+
+        assert service.get_welcome_message(123) == "Hello"
+        assert session.get_bot_config(123, BotValueTypes.WelcomeMessage) == "Hello"
+
+    @pytest.mark.asyncio
+    async def test_async_remove_welcome_button_updates_cache_and_db(self):
+        service = ConfigService()
+        session = FakeSession()
+        await service.async_set_welcome_button(123, "Click", session)
+
+        await service.async_remove_welcome_button(123, session)
+
+        assert service.get_welcome_button(123) is None
+        assert session.get_bot_config(123, BotValueTypes.WelcomeButton) is None
+
+    @pytest.mark.asyncio
+    async def test_async_set_delete_income_updates_cache_and_db(self):
+        service = ConfigService()
+        session = FakeSession()
+
+        await service.async_set_delete_income(123, {"enabled": True}, session)
+
+        assert service.get_delete_income(123) == {"enabled": True}
+        assert session.get_bot_config(123, BotValueTypes.DeleteIncome) == {"enabled": True}

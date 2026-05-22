@@ -8,9 +8,9 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Any, cast
 
-from db.repositories import ChatsRepository
 from other.constants import MTLChats
 from services.command_registry_service import update_command_info
+from services.app_context import AppContext
 from shared.domain.stellar_addresses import MTLAddresses
 
 router = Router()
@@ -49,10 +49,12 @@ links_msg = f"""
 
 @update_command_info("/start", "начать все с чистого листа")
 @router.message(CommandStart(deep_link=False, magic=F.args.is_(None)), F.chat.type == "private")
-async def cmd_start(message: Message, state: FSMContext, session: AsyncSession, bot: Bot):
+async def cmd_start(message: Message, state: FSMContext, bot: Bot, app_context: AppContext):
     await state.clear()
     if message.from_user:
-        await ChatsRepository(session).async_save_bot_user(message.from_user.id, message.from_user.username)
+        if not app_context or not app_context.db_service:
+            raise ValueError("app_context with db_service required")
+        await app_context.db_service.save_bot_user(message.from_user.id, message.from_user.username)
     await message.reply(startmsg)
 
 

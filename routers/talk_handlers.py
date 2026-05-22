@@ -17,7 +17,6 @@ from other.pyro_tools import extract_telegram_info, pyro_update_msg_info
 from other.miniapps_tools import miniapps
 from services.app_context import AppContext
 from services.skyuser import SkyUser
-from db.repositories import ConfigRepository
 
 router = Router()
 
@@ -105,7 +104,7 @@ async def cmd_last_check_nap(message: Message):
 
 
 @router.message(StartText(("SKYNET", "СКАЙНЕТ")), HasText(("ДЕКОДИРУЙ", "decode")))
-async def cmd_last_check_decode(message: Message, session: AsyncSession, bot: Bot, app_context: AppContext):
+async def cmd_last_check_decode(message: Message, bot: Bot, app_context: AppContext):
     if (
         not app_context
         or not app_context.stellar_service
@@ -138,9 +137,9 @@ async def cmd_last_check_decode(message: Message, session: AsyncSession, bot: Bo
         else:
             await message.reply("Ссылка не найдена")
     else:
-        pinned_url = (
-            await ConfigRepository(session).async_load_bot_value(message.chat.id, BotValueTypes.PinnedUrl) or ""
-        )
+        if not app_context.db_service:
+            raise ValueError("app_context with db_service required")
+        pinned_url = await app_context.db_service.load_bot_value(message.chat.id, BotValueTypes.PinnedUrl, "") or ""
         msg = await stellar_service.check_url_xdr(pinned_url)
         msg = "\n".join(msg)
         await utils_service.multi_reply(message, msg[:4000])

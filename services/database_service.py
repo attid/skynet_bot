@@ -128,3 +128,9 @@ class DatabaseService:
             repo = ChatsRepository(session)
             await repo.async_upsert_chat_info(chat_id, title, username)
             await session.commit()
+
+    async def save_bot_user(self, user_id: int, username: Optional[str], user_type: int = 0) -> None:
+        async with self.async_session_pool() as session:
+            repo = ChatsRepository(session)
+            await repo.async_save_bot_user(user_id, username, user_type)
+            await session.commit()
