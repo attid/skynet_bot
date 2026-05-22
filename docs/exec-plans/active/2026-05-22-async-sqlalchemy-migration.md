@@ -75,7 +75,7 @@
    - `on_shutdown` закрывает `async_engine`.
    - Проверка: `uv run python -m py_compile start.py db/session.py middlewares/db.py routers/welcome.py`.
 
-7. [ ] Шаг 7 — перевести базовые repositories.
+7. [x] Шаг 7 — перевести базовые repositories.
    - `db/repositories/base.py`: заменить `Session` на `AsyncSession`.
    - `db/repositories/chats.py`, `config.py`, `messages.py`, `payments.py`, `wallets.py` и остальные repository modules:
      - `result = await self.session.execute(...)`.
@@ -88,6 +88,7 @@
      - `MessageRepository.async_send_admin_message`.
    - Сохранить имена методов только если все call sites переводятся на `await` одновременно; иначе добавить временные async-suffixed методы и мигрировать по слоям.
    - Тест: async repository tests на SQLite async или mocked AsyncSession.
+   - Завершено: legacy public sync methods in `db/repositories/*` now fail fast instead of executing DB calls; static test forbids sync `self.session.query/execute/flush`.
 
 8. [x] Шаг 8 — перевести service-layer wrappers.
    - `services/database_service.py`: все методы с DB access используют `AsyncSessionPool` и `async with`.
@@ -109,7 +110,7 @@
    - Добавить краткие timing logs вокруг DB/restrict/send_message только если они остаются нужны для incident follow-up.
    - Тест: unit-level tests для join/captcha helper path с async fakes; без реального Telegram/DB.
 
-10. [ ] Шаг 10 — перевести остальные routers.
+10. [x] Шаг 10 — перевести остальные routers.
     - Batch 1: moderation/admin core: `routers/moderation.py`, `routers/admin_core.py`, `routers/admin_system.py`, `routers/admin_panel.py`.
     - Batch 2: poll/talk/last/start/inline/selfmod: `routers/polls.py`, `routers/talk_handlers.py`, `routers/last_handler.py`, `routers/start_router.py`, `routers/inline.py`, `routers/selfmod.py`.
       - Частично сделано:
@@ -148,7 +149,7 @@
         - `routers/stellar.py`: dividend admin commands await async `create_list` and `gen_xdr`.
     - После каждого batch запускать focused tests и `just types` если объем ошибок контролируем.
 
-11. [ ] Шаг 11 — перевести фоновые сервисы и scripts.
+11. [x] Шаг 11 — перевести фоновые сервисы и scripts.
     - `services/stellar_notification_service.py`: `async with self.session_pool()`.
     - `scripts/check_stellar.py`, `scripts/update_report.py`: использовать async session pool или явно оставить sync operational path с отдельным sync engine, если миграция runtime-only.
       - Частично сделано:
@@ -164,21 +165,21 @@
         - `db/repositories/payments.py`, `db/repositories/wallets.py`: removed internal sync `self.session.commit()` calls; transaction ownership stays in service/UoW layer.
     - Решение по scripts зафиксировать в плане выполнения: full async предпочтительнее, runtime-only быстрее и безопаснее.
 
-12. [ ] Шаг 12 — обновить тестовые fakes.
+12. [x] Шаг 12 — обновить тестовые fakes.
     - `tests/fakes.py`: добавить `FakeAsyncSession` или сделать существующий `FakeSession` async-compatible.
     - Поддержать `async with`, `await commit`, `await rollback`, `await execute`, `await flush`.
       - Частично сделано: `FakeResult` awaitable, `FakeSession.commit/rollback/flush` возвращают awaitable sentinel, добавлен `tests/test_fakes_async_session.py`.
     - Обновить `tests/conftest.py` middleware/session injection.
     - Обновить tests that assert sync fake behavior.
 
-13. [ ] Шаг 13 — обновить repository integration tests.
+13. [x] Шаг 13 — обновить repository integration tests.
     - Перевести `tests/db/test_repositories.py` на `pytest.mark.asyncio`.
     - Использовать `sqlite+aiosqlite:///:memory:` только если добавить dev dependency `aiosqlite`; иначе mock AsyncSession или PostgreSQL test fixture.
     - Не использовать реальные внешние DB.
       - Сделано: `tests/db/test_repositories.py` uses `create_async_engine("sqlite+aiosqlite:///:memory:")`, async repository methods and `await session.commit()`.
     - Проверка: `uv run pytest tests/db -q`.
 
-14. [ ] Шаг 14 — обновить зависимости.
+14. [x] Шаг 14 — обновить зависимости.
     - Убедиться, что `asyncpg` остается в dependencies.
     - Если sync PostgreSQL runtime больше не нужен, удалить `psycopg2-binary`.
     - Если async SQLite tests выбраны, добавить `aiosqlite` в dev dependencies.
@@ -200,12 +201,17 @@
     - Минимум: тест middleware/repository не должен использовать sync `time.sleep`/blocking DB.
     - Сделано: `tests/middlewares/test_db_session_middleware.py::test_db_session_middleware_commit_does_not_block_event_loop` checks that an async probe runs while middleware awaits DB commit.
 
-17. [ ] Шаг 17 — полная локальная проверка.
+17. [x] Шаг 17 — полная локальная проверка.
     - `uv run ruff format --check .`
     - `just lint`
     - `just types`
     - `just test`
     - Если тесты слишком широкие для одного прохода, сначала focused suites, затем полный прогон перед merge.
+    - Проверено:
+      - `uv run ruff format --check .` passed.
+      - `just lint` passed.
+      - `just types` passed.
+      - `just test` passed: 801 tests.
 
 18. [ ] Шаг 18 — staging/prod rollout.
     - Собрать Docker image локально или в CI.

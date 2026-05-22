@@ -28,7 +28,7 @@ class SkyUser:
     def is_skynet_admin(self) -> bool:
         if not self.app_context or not self.app_context.admin_service:
             raise ValueError("app_context with admin_service required")
-        return self.app_context.admin_service.is_skynet_admin(self.username)
+        return self.app_context.admin_service.is_skynet_admin(self.username or "")
 
     def has_topic_admins(self, chat_id: int, thread_id: int) -> bool:
         if not self.app_context or not self.app_context.admin_service:
@@ -38,7 +38,7 @@ class SkyUser:
     def is_topic_admin(self, chat_id: int, thread_id: int) -> bool:
         if not self.app_context or not self.app_context.admin_service:
             raise ValueError("app_context with admin_service required")
-        return self.app_context.admin_service.is_topic_admin(chat_id, thread_id, self.username)
+        return self.app_context.admin_service.is_topic_admin(chat_id, thread_id, self.username or "")
 
     def is_channel_unlinked(self) -> bool:
         return self.sender_chat_id is not None and self.user_id is None

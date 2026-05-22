@@ -498,8 +498,12 @@ async def test_cmd_tools_persists_pinned_url_through_async_db_service(router_app
     chat_id = -1012
     message = build_message_update(chat_id=chat_id, user_id=123, text="https://eurmtl.me/sign_tools?xdr=abc").message
     message.as_(router_app_context.bot)
-    router_app_context.db_service.save_bot_value = FakeAsyncMethod(side_effect=router_app_context.db_service.save_bot_value)
-    router_app_context.db_service.load_bot_value = FakeAsyncMethod(side_effect=router_app_context.db_service.load_bot_value)
+    router_app_context.db_service.save_bot_value = FakeAsyncMethod(
+        side_effect=router_app_context.db_service.save_bot_value
+    )
+    router_app_context.db_service.load_bot_value = FakeAsyncMethod(
+        side_effect=router_app_context.db_service.load_bot_value
+    )
     router_app_context.stellar_service.check_url_xdr.return_value = ["ok"]
 
     await last_handler.cmd_tools(message, router_app_context.bot, FakeSession(), app_context=router_app_context)
