@@ -1,4 +1,7 @@
 import pytest
+from aiogram.exceptions import TelegramForbiddenError
+from aiogram.methods import SendMessage
+
 from other.constants import MTLChats
 from other.grist_tools import MTLGrist
 import routers.time_handlers as time_handlers
@@ -68,6 +71,56 @@ async def test_cmd_send_message_1m(mock_telegram, router_app_context, monkeypatc
     assert str(req["data"]["chat_id"]) == "123"
     assert mock_record.was_send == 1
     assert mock_session.committed is True
+
+
+@pytest.mark.asyncio
+async def test_cmd_send_message_1m_handles_forbidden_as_delivery_failure(router_app_context, monkeypatch):
+    bot = router_app_context.bot
+
+    mock_session = FakeSession()
+    mock_pool = make_async_session_pool(mock_session)
+
+    class Record:
+        id = 42
+        update_id = 0
+        text = "Scheduled msg"
+        user_id = -100123
+        use_alarm = 1
+        was_send = 0
+        topic_id = 0
+        button_json = "{}"
+
+    mock_record = Record()
+
+    class FakeMessageRepository:
+        def __init__(self, session):
+            self.session = session
+
+        async def async_load_new_messages(self):
+            return [mock_record]
+
+    async def forbidden_send_message(*args, **kwargs):
+        raise TelegramForbiddenError(
+            SendMessage(chat_id=mock_record.user_id, text=mock_record.text),
+            "Forbidden: bot was kicked from the supergroup chat",
+        )
+
+    errors = []
+    warnings = []
+
+    monkeypatch.setattr(time_handlers, "MessageRepository", FakeMessageRepository)
+    monkeypatch.setattr(bot, "send_message", forbidden_send_message)
+    monkeypatch.setattr(time_handlers.logger, "error", errors.append)
+    monkeypatch.setattr(time_handlers.logger, "warning", warnings.append)
+
+    await time_handlers.cmd_send_message_1m(bot, mock_pool)
+
+    assert mock_record.was_send == 2
+    assert mock_session.committed is True
+    assert errors == []
+    assert len(warnings) == 1
+    assert "message_id=42" in warnings[0]
+    assert "chat_id=-100123" in warnings[0]
 
 
 @pytest.mark.asyncio

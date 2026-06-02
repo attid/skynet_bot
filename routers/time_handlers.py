@@ -4,6 +4,7 @@ from datetime import datetime
 import random
 from typing import Any, Optional, cast
 from aiogram import Bot
+from aiogram.exceptions import TelegramForbiddenError
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from loguru import logger
@@ -81,6 +82,17 @@ async def cmd_send_message_1m(bot: Bot, session_pool):
 
                 record_any.was_send = 1
                 await session.commit()
+            except TelegramForbiddenError as ex:
+                record_any.was_send = 2
+                await session.commit()
+                logger.warning(
+                    "Scheduled message delivery forbidden: "
+                    f"message_id={getattr(record_any, 'id', None)} "
+                    f"chat_id={getattr(record_any, 'user_id', None)} "
+                    f"topic_id={getattr(record_any, 'topic_id', None)} "
+                    f"update_id={getattr(record_any, 'update_id', None)} "
+                    f"error={ex}"
+                )
             except Exception as ex:
                 record_any.was_send = 2
                 await session.commit()
