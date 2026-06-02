@@ -161,6 +161,33 @@ async def test_add_and_remove_user(db_session):
 
 
 @pytest.mark.asyncio
+async def test_add_user_to_chat_is_idempotent_for_concurrent_bot_user_insert():
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///file:concurrent_bot_users?mode=memory&cache=shared&uri=true",
+        connect_args={"check_same_thread": False, "uri": True},
+        poolclass=StaticPool,
+    )
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    Session = async_sessionmaker(engine, expire_on_commit=False)
+    chat_id = 2004
+    member = GroupMember(user_id=12, username="race_user", full_name="Race User", is_admin=False)
+
+    async with Session() as first, Session() as second:
+        await ChatsRepository(first).async_add_user_to_chat(chat_id, member)
+        await ChatsRepository(second).async_add_user_to_chat(chat_id, member)
+        await first.commit()
+        await second.commit()
+
+    async with Session() as session:
+        users = (await session.execute(select(BotUsers).where(BotUsers.user_id == member.user_id))).scalars().all()
+        assert len(users) == 1
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_chat_repository_writes_naive_datetimes_for_postgres_timestamp_columns(db_session):
     repo = ChatsRepository(db_session)
     chat_id = 2003

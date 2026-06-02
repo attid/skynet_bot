@@ -3,6 +3,8 @@ from typing import List, Optional, Dict
 
 from pydantic import BaseModel, Field
 from sqlalchemy import select, delete, and_
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from db.repositories.base import BaseRepository
 from other.pyro_tools import GroupMember
@@ -11,6 +13,17 @@ from shared.infrastructure.database.models import Chat, ChatMember, BotUsers, Bo
 
 def _utcnow_naive() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
+
+
+def _dialect_insert(session, table):
+    if not hasattr(session, "get_bind"):
+        return None
+    dialect_name = session.get_bind().dialect.name
+    if dialect_name == "postgresql":
+        return postgresql_insert(table)
+    if dialect_name == "sqlite":
+        return sqlite_insert(table)
+    return None
 
 
 # DTOs replacing MongoUser and MongoChat
@@ -99,38 +112,71 @@ class ChatsRepository(BaseRepository):
     async def async_add_user_to_chat(self, chat_id: int, member: GroupMember) -> bool:
         now = _utcnow_naive()
 
-        result = await self.session.execute(select(Chat).where(Chat.chat_id == chat_id))
-        chat = result.scalar_one_or_none()
-
-        if not chat:
-            chat = Chat(chat_id=chat_id, created_at=now, last_updated=now, admins=[], metadata_={})
-            self.session.add(chat)
-            await self.session.flush()
-
-        chat.last_updated = now
-
-        user_result = await self.session.execute(select(BotUsers).where(BotUsers.user_id == member.user_id))
-        user_record = user_result.scalar_one_or_none()
-
-        if not user_record:
-            new_user = BotUsers(user_id=member.user_id, user_name=member.username, user_type=0)
-            self.session.add(new_user)
-
-        existing_member = (
-            await self.session.execute(
-                select(ChatMember).where(and_(ChatMember.chat_id == chat_id, ChatMember.user_id == member.user_id))
-            )
-        ).scalar_one_or_none()
-
         member_metadata = {"username": member.username, "full_name": member.full_name, "is_admin": member.is_admin}
 
-        if existing_member:
-            existing_member.metadata_ = member_metadata
-            if existing_member.left_at:
-                existing_member.left_at = None
+        chat_insert = _dialect_insert(self.session, Chat.__table__)
+        user_insert = _dialect_insert(self.session, BotUsers.__table__)
+        member_insert = _dialect_insert(self.session, ChatMember.__table__)
+        chat = None
+
+        if chat_insert is not None and user_insert is not None and member_insert is not None:
+            await self.session.execute(
+                chat_insert.values(
+                    chat_id=chat_id, created_at=now, last_updated=now, admins=[], metadata={}
+                ).on_conflict_do_update(index_elements=[Chat.chat_id], set_={"last_updated": now})
+            )
+            await self.session.execute(
+                user_insert.values(
+                    user_id=member.user_id, user_name=member.username, user_type=0
+                ).on_conflict_do_nothing(index_elements=[BotUsers.user_id])
+            )
+            await self.session.execute(
+                member_insert.values(
+                    chat_id=chat_id,
+                    user_id=member.user_id,
+                    created_at=now,
+                    left_at=None,
+                    metadata=member_metadata,
+                ).on_conflict_do_update(
+                    index_elements=[ChatMember.chat_id, ChatMember.user_id],
+                    set_={"metadata": member_metadata, "left_at": None},
+                )
+            )
+            result = await self.session.execute(select(Chat).where(Chat.chat_id == chat_id))
+            chat = result.scalar_one()
         else:
-            new_member = ChatMember(chat_id=chat_id, user_id=member.user_id, created_at=now, metadata_=member_metadata)
-            self.session.add(new_member)
+            result = await self.session.execute(select(Chat).where(Chat.chat_id == chat_id))
+            chat = result.scalar_one_or_none()
+
+            if not chat:
+                chat = Chat(chat_id=chat_id, created_at=now, last_updated=now, admins=[], metadata_={})
+                self.session.add(chat)
+                await self.session.flush()
+
+            chat.last_updated = now
+
+            user_result = await self.session.execute(select(BotUsers).where(BotUsers.user_id == member.user_id))
+            user_record = user_result.scalar_one_or_none()
+
+            if not user_record:
+                new_user = BotUsers(user_id=member.user_id, user_name=member.username, user_type=0)
+                self.session.add(new_user)
+
+            existing_member = (
+                await self.session.execute(
+                    select(ChatMember).where(and_(ChatMember.chat_id == chat_id, ChatMember.user_id == member.user_id))
+                )
+            ).scalar_one_or_none()
+
+            if existing_member:
+                existing_member.metadata_ = member_metadata
+                if existing_member.left_at:
+                    existing_member.left_at = None
+            else:
+                new_member = ChatMember(
+                    chat_id=chat_id, user_id=member.user_id, created_at=now, metadata_=member_metadata
+                )
+                self.session.add(new_member)
 
         if member.is_admin:
             if chat.admins is None:
