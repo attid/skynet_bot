@@ -5,6 +5,23 @@ from PIL import Image, ImageDraw, ImageFont
 from other.config_reader import start_path
 
 
+def _load_font(font_path: str, font_size: int):
+    font_candidates = [
+        font_path,
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+        "/System/Library/Fonts/Menlo.ttc",
+        "/System/Library/Fonts/Supplemental/Courier New.ttf",
+    ]
+
+    for candidate in font_candidates:
+        try:
+            return ImageFont.truetype(candidate, font_size)
+        except OSError:
+            continue
+
+    return ImageFont.load_default()
+
+
 def create_image_with_text(
     text,
     font_path="DejaVuSansMono.ttf",
@@ -20,7 +37,7 @@ def create_image_with_text(
     measure_height = canvas_height or 1
     image = Image.new("RGB", (canvas_width, measure_height), color="white")
     draw = ImageDraw.Draw(image)
-    font = ImageFont.truetype(font_path, font_size)
+    font = _load_font(font_path, font_size)
 
     lines = text.splitlines()
     if not lines:
