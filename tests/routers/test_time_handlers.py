@@ -36,6 +36,34 @@ def make_async_session_pool(session):
     return Pool()
 
 
+def test_scheduler_jobs_runs_check_bot_monday_at_16(router_app_context):
+    class FakeScheduler:
+        def __init__(self):
+            self.jobs = []
+
+        def add_job(self, func, trigger, **kwargs):
+            self.jobs.append((func, trigger, kwargs))
+
+    scheduler = FakeScheduler()
+
+    time_handlers.scheduler_jobs(
+        scheduler,
+        router_app_context.bot,
+        make_async_session_pool(FakeSession()),
+        db_service=router_app_context.db_service,
+        async_session_pool=make_async_session_pool(FakeSession()),
+    )
+
+    check_bot_jobs = [job for job in scheduler.jobs if job[0] is time_handlers.cmd_check_bot]
+
+    assert len(check_bot_jobs) == 1
+    _, trigger, kwargs = check_bot_jobs[0]
+    assert trigger == "cron"
+    assert kwargs["day_of_week"] == "mon"
+    assert kwargs["hour"] == 16
+    assert kwargs["minute"] == 0
+
+
 @pytest.mark.asyncio
 async def test_cmd_send_message_1m(mock_telegram, router_app_context, monkeypatch):
     bot = router_app_context.bot

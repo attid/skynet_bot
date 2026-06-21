@@ -231,13 +231,13 @@ def scheduler_jobs(
     # 30 */3 * * * /home/skynet_bot/deploy/check_stellar.sh check_grist
     scheduler.add_job(cmd_check_grist, "interval", hours=3, minutes=30, misfire_grace_time=360, jitter=120)
 
-    # Задача проверки бота Stellar три раза в день
-    # 10 */6 * * * /home/skynet_bot/deploy/check_stellar.sh check_bot
+    # Задача проверки бота Stellar раз в неделю по понедельникам в 16:00
     scheduler.add_job(
         cmd_check_bot,
-        "interval",
-        hours=6,
-        minutes=10,
+        "cron",
+        day_of_week="mon",
+        hour=16,
+        minute=0,
         args=(check_bot_session_pool,),
         misfire_grace_time=360,
         jitter=120,
