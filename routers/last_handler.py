@@ -16,6 +16,7 @@ from aiogram.types import (
     InlineKeyboardButton,
     CallbackQuery,
     ReplyParameters,
+    User,
 )
 from aiogram.fsm.context import FSMContext
 from loguru import logger
@@ -218,17 +219,16 @@ async def set_vote(message, app_context=None):
     return None
 
 
-async def _handle_burst_spam(message: Message, bot: Bot, session: Any, app_context, user_id: int, hit: BurstHit):
-    """Delete every copy of a NEW user's duplicate burst and restrict the user.
-
-    Mirrors delete_and_log_spam: restrict, forward a sample to the spam group
-    with Restore/Kick buttons, then remove all tracked copies and their
-    first-vote panels so nothing is left in the chat.
+async def _restrict_forward_and_delete(
+    message: Message, app_context, target_user_id: int, rules_name: str, source_handler: str
+) -> None:
+    """Restrict the target, forward the sample to the spam group with
+    Restore/Kick buttons, delete the original message and mark the target BAD.
     """
     chat_id = message.chat.id
     with suppress(TelegramBadRequest):
         await message.chat.restrict(
-            user_id,
+            target_user_id,
             permissions=ChatPermissions(
                 can_send_messages=False, can_send_media_messages=False, can_send_other_messages=False
             ),
@@ -236,17 +236,14 @@ async def _handle_burst_spam(message: Message, bot: Bot, session: Any, app_conte
 
     sample = await message.forward(MTLChats.SpamGroup)
     chat_link = f"@{message.chat.username}" if message.chat.username else message.chat.invite_link
-    msg_text = (
-        f"Сообщение из чата {html.escape(message.chat.title or '')} {chat_link}\n"
-        f"duplicate burst x{hit.copies} (user_id={user_id})"
-    )
+    msg_text = f"Сообщение из чата {html.escape(message.chat.title or '')} {chat_link}\n{rules_name}"
     buttons = [
         InlineKeyboardButton(
             text="Restore. Its good msg !",
             callback_data=SpamCheckCallbackData(
                 message_id=message.message_id,
                 chat_id=chat_id,
-                user_id=user_id,
+                user_id=target_user_id,
                 new_message_id=sample.message_id,
                 message_thread_id=message.message_thread_id or 0,
                 good=True,
@@ -257,7 +254,7 @@ async def _handle_burst_spam(message: Message, bot: Bot, session: Any, app_conte
             callback_data=SpamCheckCallbackData(
                 message_id=message.message_id,
                 chat_id=chat_id,
-                user_id=user_id,
+                user_id=target_user_id,
                 new_message_id=sample.message_id,
                 message_thread_id=message.message_thread_id or 0,
                 good=False,
@@ -270,12 +267,6 @@ async def _handle_burst_spam(message: Message, bot: Bot, session: Any, app_conte
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[button] for button in buttons]),
     )
 
-    for record in hit.records:
-        if record.panel_message_id:
-            with suppress(TelegramBadRequest):
-                await bot.delete_message(chat_id, record.panel_message_id)
-        with suppress(TelegramBadRequest):
-            await bot.delete_message(chat_id, record.message_id)
     with suppress(TelegramBadRequest):
         await message.delete()
 
@@ -283,12 +274,89 @@ async def _handle_burst_spam(message: Message, bot: Bot, session: Any, app_conte
         action="restrict",
         actor_id=None,
         actor_username=None,
-        target_user_id=user_id,
+        target_user_id=target_user_id,
         chat_id=chat_id,
-        source_handler="routers.last_handler._handle_burst_spam",
+        source_handler=source_handler,
         result="success",
     )
-    await _get_db_service(app_context).save_bot_user(user_id, None, 2)
+    await _get_db_service(app_context).save_bot_user(target_user_id, None, 2)
+
+
+async def _handle_burst_spam(message: Message, bot: Bot, session: Any, app_context, user_id: int, hit: BurstHit):
+    """Delete every copy of a NEW user's duplicate burst and restrict the user."""
+    for record in hit.records:
+        with suppress(TelegramBadRequest):
+            if record.panel_message_id:
+                await bot.delete_message(message.chat.id, record.panel_message_id)
+        with suppress(TelegramBadRequest):
+            await bot.delete_message(message.chat.id, record.message_id)
+    await _restrict_forward_and_delete(
+        message,
+        app_context,
+        user_id,
+        f"duplicate burst x{hit.copies} (user_id={user_id})",
+        "routers.last_handler._handle_burst_spam",
+    )
+
+
+def _get_bot_origin(message: Message) -> tuple[User | None, User | None]:
+    """Return (bot_user, guest_caller) for bot-posted messages.
+
+    Bot API 10.x guest calls carry ``guest_bot_caller_user`` - the user who
+    invoked the guest bot. Regular member-bot messages only have a bot in
+    ``from_user``. Messages with ``sender_chat`` (anonymous admins, channel
+    posts) keep their existing handling, so they are excluded here.
+    """
+    if message.sender_chat is not None:
+        return None, None
+    caller = message.guest_bot_caller_user
+    bot_user = message.from_user if message.from_user and message.from_user.is_bot else None
+    return bot_user, caller
+
+
+async def _check_bot_message(message: Message, app_context) -> bool:
+    """Policy for messages posted by bots. Returns True when fully handled.
+
+    Guest calls: GOOD callers are allowed (old users may summon bots), everyone
+    else goes through the spam flow against the CALLER. Bot messages without a
+    guest binding are only logged for now, so long-standing member bots that
+    admins added stay untouched.
+    """
+    bot_user, caller = _get_bot_origin(message)
+    if bot_user is None and caller is None:
+        return False
+
+    bot_desc = f"{bot_user.id} ({bot_user.username})" if bot_user else "unknown"
+
+    if caller is None:
+        logger.info(
+            "bot_message (no guest binding) chat_id={} bot={} content_type={} text={!r}",
+            message.chat.id,
+            bot_desc,
+            message.content_type,
+            (message.text or message.caption or "")[:200],
+        )
+        return True
+
+    if _get_spam_status(app_context, caller.id) == SpamStatus.GOOD:
+        logger.info("guest_bot_call_allowed chat_id={} caller_id={} bot={}", message.chat.id, caller.id, bot_desc)
+        return True
+
+    logger.warning(
+        "guest_bot_spam chat_id={} caller_id={} caller_username={} bot={}",
+        message.chat.id,
+        caller.id,
+        caller.username,
+        bot_desc,
+    )
+    await _restrict_forward_and_delete(
+        message,
+        app_context,
+        caller.id,
+        f"guest bot call (caller_id={caller.id})",
+        "routers.last_handler._check_bot_message",
+    )
+    return True
 
 
 async def check_alert(bot, message, session, app_context=None):
@@ -597,6 +665,10 @@ async def cmd_last_check(message: Message, session: Any, bot: Bot, state: FSMCon
     # Using app_context if available (and antispam service)
     chat_id = message.chat.id
 
+    # Bot-posted messages (guest bots): GOOD callers pass, others go to spam flow
+    if await _check_bot_message(message, app_context):
+        return
+
     # Check no_first_link feature using DI service
     if _is_feature_enabled(app_context, chat_id, "no_first_link"):
         if app_context:
@@ -672,6 +744,10 @@ async def cmd_last_check(message: Message, session: Any, bot: Bot, state: FSMCon
 
 @router.message(ChatInOption("no_first_link"))  # точно не текс, выше остановились
 async def cmd_last_check_other(message: Message, session: Any, bot: Bot, app_context):
+    # Bot-posted messages (guest bots): GOOD callers pass, others go to spam flow
+    if await _check_bot_message(message, app_context):
+        return
+
     sender_id = message.from_user.id if message.from_user else 0
     user_id = message.sender_chat.id if sender_id == MTLChats.Channel_Bot and message.sender_chat else sender_id
 
