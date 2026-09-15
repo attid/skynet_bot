@@ -1,5 +1,7 @@
 """Tests for admin_panel.py router."""
 
+import json
+
 import pytest
 import datetime
 from aiogram import types
@@ -335,7 +337,7 @@ async def test_cmd_admin_with_chats(mock_telegram, router_app_context):
 
 @pytest.mark.asyncio
 async def test_cmd_admin_reload_in_group(mock_telegram, router_app_context):
-    """Test /admin command in group reloads admin list."""
+    """Test /admin command in group verifies admin and hands off via deep link."""
     dp = router_app_context.dispatcher
     dp.message.middleware(RouterTestMiddleware(router_app_context))
     dp.include_router(admin_panel_router)
@@ -361,11 +363,129 @@ async def test_cmd_admin_reload_in_group(mock_telegram, router_app_context):
     # Check that admin list was updated
     assert router_app_context.admin_service.is_chat_admin(chat_id, user_id)
 
-    # Check reply sent
     requests = mock_telegram.get_requests()
-    send_msg = next((r for r in requests if r["method"] == "sendMessage"), None)
+    # Title refreshed from the API
+    assert any(r["method"] == "getChat" for r in requests)
+    # Ephemeral reply with a deep-link button to the private panel
+    send_msg = next(
+        (r for r in requests if r["method"] == "sendMessage" and r["data"].get("ephemeral_message_parameters")),
+        None,
+    )
     assert send_msg is not None
-    assert send_msg["data"]["text"] == "OK"
+    assert "Admin panel for this chat" in send_msg["data"]["text"]
+    markup = json.loads(send_msg["data"]["reply_markup"])
+    button = markup["inline_keyboard"][0][0]
+    assert button["url"] == f"https://t.me/test_bot?start=admin_{chat_id}"
+    # The command message itself is removed
+    assert any(r["method"] == "deleteMessage" and str(r["data"]["message_id"]) == "1" for r in requests)
+
+
+@pytest.mark.asyncio
+async def test_cmd_admin_in_group_denied_for_non_admin(mock_telegram, router_app_context):
+    """Non-admins get an ephemeral denial and nothing is reloaded."""
+    dp = router_app_context.dispatcher
+    dp.message.middleware(RouterTestMiddleware(router_app_context))
+    dp.include_router(admin_panel_router)
+
+    user_id = 12345
+    chat_id = -100999
+
+    setup_admin_response(mock_telegram, user_id, False)
+
+    update = types.Update(
+        update_id=1,
+        message=types.Message(
+            message_id=1,
+            date=datetime.datetime.now(),
+            chat=types.Chat(id=chat_id, type="supergroup", title="Group"),
+            from_user=types.User(id=user_id, is_bot=False, first_name="Random"),
+            text="/admin",
+        ),
+    )
+
+    await dp.feed_update(bot=router_app_context.bot, update=update)
+
+    requests = mock_telegram.get_requests()
+    assert not router_app_context.admin_service.is_chat_admin(chat_id, user_id)
+    assert not any(r["method"] == "getChat" for r in requests)
+    deny_msg = next(
+        (r for r in requests if r["method"] == "sendMessage" and r["data"].get("ephemeral_message_parameters")),
+        None,
+    )
+    assert deny_msg is not None
+    assert "not an admin" in deny_msg["data"]["text"]
+
+
+@pytest.mark.asyncio
+async def test_admin_deep_link_opens_chat_menu(mock_telegram, router_app_context):
+    """Deep link t.me/<bot>?start=admin_<chat_id> opens the panel for that chat in private."""
+    dp = router_app_context.dispatcher
+    dp.message.middleware(RouterTestMiddleware(router_app_context))
+    dp.include_router(admin_panel_router)
+
+    user_id = 12345
+    chat_id = -100777
+
+    setup_admin_response(mock_telegram, user_id, True)
+
+    update = types.Update(
+        update_id=1,
+        message=types.Message(
+            message_id=1,
+            date=datetime.datetime.now(),
+            chat=types.Chat(id=user_id, type="private"),
+            from_user=types.User(id=user_id, is_bot=False, first_name="Admin"),
+            text=f"/start admin_{chat_id}",
+        ),
+    )
+
+    await dp.feed_update(bot=router_app_context.bot, update=update)
+
+    requests = mock_telegram.get_requests()
+    assert any(r["method"] == "getChat" for r in requests)
+    panel = next(
+        (r for r in requests if r["method"] == "sendMessage" and "Settings:" in r["data"].get("text", "")),
+        None,
+    )
+    assert panel is not None
+    assert panel["data"]["chat_id"] == str(user_id)
+    markup = json.loads(panel["data"]["reply_markup"])
+    callback = markup["inline_keyboard"][0][0]["callback_data"]
+    assert callback.startswith("adm:")
+
+
+@pytest.mark.asyncio
+async def test_admin_deep_link_denied_for_non_admin(mock_telegram, router_app_context):
+    """Deep link for a chat where the user is not admin is rejected."""
+    dp = router_app_context.dispatcher
+    dp.message.middleware(RouterTestMiddleware(router_app_context))
+    dp.include_router(admin_panel_router)
+
+    user_id = 12345
+    chat_id = -100777
+
+    setup_admin_response(mock_telegram, user_id, False)
+
+    update = types.Update(
+        update_id=1,
+        message=types.Message(
+            message_id=1,
+            date=datetime.datetime.now(),
+            chat=types.Chat(id=user_id, type="private"),
+            from_user=types.User(id=user_id, is_bot=False, first_name="Random"),
+            text=f"/start admin_{chat_id}",
+        ),
+    )
+
+    await dp.feed_update(bot=router_app_context.bot, update=update)
+
+    requests = mock_telegram.get_requests()
+    panel = next(
+        (r for r in requests if r["method"] == "sendMessage" and "Settings:" in r["data"].get("text", "")),
+        None,
+    )
+    assert panel is None
+    assert any("not an admin" in r["data"]["text"] for r in requests if r["method"] == "sendMessage")
 
 
 # ============ Integration Tests: Callback Handlers ============

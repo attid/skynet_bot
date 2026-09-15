@@ -9,7 +9,7 @@ from typing import Any, cast
 from aiogram import Router, Bot, F
 from aiogram.enums import ChatType, ParseMode
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
-from aiogram.filters import Command
+from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.filters.callback_data import CallbackData
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -176,6 +176,22 @@ async def get_chat_title(
     except (TelegramBadRequest, TelegramForbiddenError):
         await async_mark_chat_inaccessible(chat_id, app_context)
         return None
+
+
+async def refresh_chat_title(
+    chat_id: int, bot: Bot, session: AsyncSession | None = None, app_context: AppContext | None = None
+) -> str | None:
+    """Fetch the current chat title from the API and refresh caches so renames show up."""
+    try:
+        chat = await bot.get_chat(chat_id)
+    except (TelegramBadRequest, TelegramForbiddenError) as e:
+        logger.warning("Failed to refresh chat title for {}: {}", chat_id, e)
+        return None
+    title = chat.title or chat.first_name or str(chat_id)
+    _chat_titles[chat_id] = title
+    if app_context and app_context.db_service:
+        await app_context.db_service.upsert_chat_info(chat_id, chat.title or None, chat.username)
+    return title
 
 
 def _is_skynet_admin(user: User, app_context: AppContext) -> bool:
@@ -533,7 +549,7 @@ def welcome_kb(chat_id: int) -> InlineKeyboardMarkup:
 # ============ Command Handler ============
 
 
-@update_command_info("/admin", "Admin panel for chat management (use in private chat)")
+@update_command_info("/admin", "Admin panel. In private: pick a chat; in a chat: open this chat's panel (admins only)")
 @router.message(Command(commands=["admin"]), F.chat.type == ChatType.PRIVATE)
 async def cmd_admin(message: Message, session: AsyncSession, bot: Bot, app_context: AppContext):
     """Entry point for admin panel - shows list of chats where user is admin.
@@ -596,34 +612,75 @@ async def cmd_admin(message: Message, session: AsyncSession, bot: Bot, app_conte
 
 @router.message(Command(commands=["admin"]), F.chat.type != ChatType.PRIVATE)
 async def cmd_admin_reload(message: Message, session: AsyncSession, bot: Bot, app_context: AppContext):
-    """Reload admin list for current chat (group command)."""
+    """Open this chat's admin panel: verify admin, refresh admins and title, hand off via deep link."""
     if not app_context or not app_context.admin_service or not app_context.db_service:
         return
-    admin_service = app_context.admin_service
-    db_service = cast(Any, app_context.db_service)
-
+    if not app_context.utils_service or not message.from_user:
+        return
+    utils_service = cast(Any, app_context.utils_service)
+    user_id = message.from_user.id
     chat_id = message.chat.id
 
     try:
         members = await bot.get_chat_administrators(chat_id)
-        new_admins = [member.user.id for member in members]
-
-        # Update cache
-        admin_service.set_chat_admins(chat_id, new_admins)
-
-        # Save to DB
-        await db_service.save_bot_value(chat_id, BotValueTypes.Admins, json.dumps(new_admins))
-
-        reply = await message.reply("OK")
-
-        # Delete both messages after 5 seconds
-        if app_context.utils_service:
-            utils_service = cast(Any, app_context.utils_service)
-            await utils_service.sleep_and_delete(message, 5)
-            await utils_service.sleep_and_delete(reply, 5)
-
     except TelegramBadRequest as e:
         logger.error(f"Failed to reload admins for chat {chat_id}: {e}")
+        return
+
+    if not any(member.user.id == user_id for member in members):
+        await utils_service.reply_ephemeral(message, "You are not an admin of this chat.")
+        await utils_service.delete_now(message)
+        return
+
+    # Refresh the cached admin list while we are here
+    new_admins = [member.user.id for member in members]
+    app_context.admin_service.set_chat_admins(chat_id, new_admins)
+    await app_context.db_service.save_bot_value(chat_id, BotValueTypes.Admins, json.dumps(new_admins))
+
+    # Refresh the cached title so renames are picked up
+    title = await refresh_chat_title(chat_id, bot, session, app_context)
+    if not title:
+        await utils_service.reply_ephemeral(message, "Chat not accessible.")
+        await utils_service.delete_now(message)
+        return
+
+    me = await bot.me()
+    deep_link = f"https://t.me/{me.username}?start=admin_{chat_id}"
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text=f"Open admin panel: {title}", url=deep_link)]]
+    )
+    await utils_service.reply_ephemeral(message, "Admin panel for this chat:", reply_markup=keyboard)
+    await utils_service.delete_now(message)
+
+
+@router.message(CommandStart(deep_link=True, magic=F.args.regexp(r"^admin_-?\d+$")), F.chat.type == ChatType.PRIVATE)
+async def cmd_admin_deep_link(
+    message: Message, command: CommandObject, session: AsyncSession, bot: Bot, app_context: AppContext
+):
+    """Open the admin panel for a chat passed via deep link: t.me/<bot>?start=admin_<chat_id>."""
+    if not app_context or not app_context.admin_service:
+        await message.answer("Service unavailable.")
+        return
+    if not message.from_user:
+        return
+    user_id = message.from_user.id
+
+    try:
+        target_chat_id = int((command.args or "").split("_", 1)[1])
+    except ValueError:
+        await message.answer("Bad admin link.")
+        return
+
+    if not await verify_admin_via_api(user_id, target_chat_id, bot):
+        await message.answer("You are not an admin of this chat.")
+        return
+
+    title = await refresh_chat_title(target_chat_id, bot, session, app_context)
+    if not title:
+        await message.answer("Chat not accessible.")
+        return
+
+    await message.answer(f"Settings: {title}", reply_markup=chat_menu_kb(target_chat_id))
 
 
 # ============ Navigation Callbacks ============
