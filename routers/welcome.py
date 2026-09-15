@@ -176,7 +176,8 @@ async def cmd_delete_welcome(
 
     if not admin:
         text = skyuser.admin_denied_text() if skyuser else "You are not admin."
-        await message.reply(text)
+        await utils_service.reply_ephemeral(message, text)
+        await utils_service.delete_now(message)
         return False
 
     has_welcome = config_service.get_welcome_message(message.chat.id) is not None
@@ -185,9 +186,8 @@ async def cmd_delete_welcome(
         config_service.remove_welcome_message(message.chat.id)
         await db_service.save_bot_value(message.chat.id, BotValueTypes.WelcomeMessage, None)
 
-    msg = await message.reply("Removed")
-    await utils_service.sleep_and_delete(msg, 60)
-    await utils_service.sleep_and_delete(message, 60)
+    await utils_service.reply_ephemeral(message, "Removed")
+    await utils_service.delete_now(message)
 
 
 @update_command_info(
@@ -208,7 +208,8 @@ async def cmd_set_welcome(
 
     if not admin:
         text = skyuser.admin_denied_text() if skyuser else "You are not admin."
-        await message.reply(text)
+        await utils_service.reply_ephemeral(message, text)
+        await utils_service.delete_now(message)
         return False
 
     if len((message.text or "").split()) > 1:
@@ -217,12 +218,14 @@ async def cmd_set_welcome(
 
         config_service.set_welcome_message(message.chat.id, welcome_text)
         await db_service.save_bot_value(message.chat.id, BotValueTypes.WelcomeMessage, welcome_text)
-        msg = await message.reply("Added")
-        await utils_service.sleep_and_delete(msg, 60)
+        await utils_service.reply_ephemeral(message, "Added")
+        # Keep a copy of the stored welcome text in the admin's personal history.
+        await utils_service.reply_ephemeral(message, welcome_text)
     else:
         await cmd_delete_welcome(message, app_context=app_context, skyuser=skyuser)
+        return
 
-    await utils_service.sleep_and_delete(message, 60)
+    await utils_service.delete_now(message)
 
 
 @update_command_info("/set_welcome_button", "Установить текст на кнопке капчи", 2, "welcome_button")
@@ -241,7 +244,8 @@ async def cmd_set_welcome_button(
 
     if not admin:
         text = skyuser.admin_denied_text() if skyuser else "You are not admin."
-        await message.reply(text)
+        await utils_service.reply_ephemeral(message, text)
+        await utils_service.delete_now(message)
         return False
 
     if len((message.text or "").split()) > 1:
@@ -249,13 +253,11 @@ async def cmd_set_welcome_button(
 
         config_service.set_welcome_button(message.chat.id, text)
         await db_service.save_bot_value(message.chat.id, BotValueTypes.WelcomeButton, text)
-        msg = await message.reply("Added")
-        await utils_service.sleep_and_delete(msg, 60)
+        await utils_service.reply_ephemeral(message, "Added")
     else:
-        msg = await message.reply("need more words")
-        await utils_service.sleep_and_delete(msg, 60)
+        await utils_service.reply_ephemeral(message, "need more words")
 
-    await utils_service.sleep_and_delete(message, 60)
+    await utils_service.delete_now(message)
 
 
 @update_command_info("/stop_exchange", "Остановить ботов обмена. Только для админов")

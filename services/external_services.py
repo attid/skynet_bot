@@ -713,6 +713,35 @@ class UtilsService:
             seconds = 3 * 60
         return await cmd_sleep_and_delete(message, sleep_time=seconds)
 
+    async def reply_ephemeral(self, message, text, parse_mode=None, reply_markup=None):
+        """Reply visible only to the message sender via a Bot API ephemeral message.
+
+        Falls back to a regular public reply when the sender is not a real user
+        (anonymous admin, channel relay) so legacy flows keep working.
+        """
+        from aiogram.types import EphemeralMessageParameters
+
+        bot = message.bot
+        if not bot:
+            return None
+        sender = message.from_user
+        if not sender or sender.is_bot:
+            return await message.reply(text, parse_mode=parse_mode, reply_markup=reply_markup)
+        return await bot.send_message(
+            message.chat.id,
+            text,
+            parse_mode=parse_mode,
+            reply_markup=reply_markup,
+            ephemeral_message_parameters=EphemeralMessageParameters(receiver_user_id=sender.id),
+        )
+
+    async def delete_now(self, message):
+        """Delete a message immediately, ignoring Telegram errors."""
+        from contextlib import suppress
+
+        with suppress(Exception):
+            await message.delete()
+
     async def multi_reply(self, message, text):
         from other.aiogram_tools import multi_reply
 

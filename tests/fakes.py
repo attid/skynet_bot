@@ -2,8 +2,10 @@ import inspect
 from contextlib import suppress
 
 from other.aiogram_tools import add_text, answer_text_file, multi_answer, multi_reply
+from services.ban_stats_service import BanStatsService
 from services.bot_state_service import BotStateService
 from services.channel_link_service import ChannelLinkService
+from services.external_services import UtilsService
 
 
 class FakeAsyncMethod:
@@ -471,7 +473,10 @@ class TestUtilsService:
         self.multi_reply_calls = []
         self.multi_answer_calls = []
         self.answer_text_file_calls = []
+        self.reply_ephemeral_calls = []
+        self.delete_now_calls = []
         self._admin_service = None  # Will be set by TestAppContext
+        self._ephemeral_impl = UtilsService()
 
     def set_admin_service(self, admin_service):
         """Set the admin service reference for is_skynet_admin checks."""
@@ -481,6 +486,16 @@ class TestUtilsService:
         self.sleep_and_delete_calls.append((message, seconds))
         with suppress(Exception):
             await message.delete()
+
+    async def reply_ephemeral(self, message, text, parse_mode=None, reply_markup=None):
+        self.reply_ephemeral_calls.append((message, text))
+        return await self._ephemeral_impl.reply_ephemeral(
+            message, text, parse_mode=parse_mode, reply_markup=reply_markup
+        )
+
+    async def delete_now(self, message):
+        self.delete_now_calls.append(message)
+        return await self._ephemeral_impl.delete_now(message)
 
     async def multi_reply(self, message, text):
         self.multi_reply_calls.append((message, text))
@@ -1771,6 +1786,7 @@ class TestAppContext:
         self.channel_link_service = ChannelLinkService()
         self.selfmod_service = FakeSelfmodService()
         self.message_thread_cache_service = FakeMessageThreadCacheService()
+        self.ban_stats_service = BanStatsService()
         self.admin_id = 123456
         # Wire admin_service to utils_service
         self.utils_service.set_admin_service(self.admin_service)

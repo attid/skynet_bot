@@ -334,6 +334,7 @@ async def universal_command_handler(
     app_context=None,
     skyuser: SkyUser | None = None,
 ):
+    utils_service = cast(Any, app_context.utils_service) if app_context and app_context.utils_service else None
     message_text = (message.text or "").lower()
     if not message_text:
         return
@@ -353,19 +354,19 @@ async def universal_command_handler(
     )
 
     if action_type == "ignore":
-        await message.reply("Technical command. Ignore it.")
+        await _deny_ephemeral(utils_service, message, "Technical command. Ignore it.")
         return
 
     if admin_check == "skynet_admin" and (not skyuser or not skyuser.is_skynet_admin()):
-        await message.reply("You are not my admin.")
+        await _deny_ephemeral(utils_service, message, "You are not my admin.")
         return
     elif admin_check == "admin":
         if not skyuser:
-            await message.reply("You are not admin.")
+            await _deny_ephemeral(utils_service, message, "You are not admin.")
             return
         if not is_topic_admin_show and not await skyuser.is_admin():
             text = skyuser.admin_denied_text() if skyuser else "You are not admin."
-            await message.reply(text)
+            await _deny_ephemeral(utils_service, message, text)
             return
 
     if action_type == "toggle_chat" and command_arg and len(command_arg) > 5:
@@ -377,7 +378,7 @@ async def universal_command_handler(
                 if skyuser
                 else "Bad target chat. Or you are not admin."
             )
-            await message.reply(text)
+            await _deny_ephemeral(utils_service, message, text)
             return
 
     await bot.set_message_reaction(
@@ -389,7 +390,7 @@ async def universal_command_handler(
 
     if action_type in ["add_list_topic", "del_list_topic", "show_list_topic"]:
         if not message.message_thread_id:
-            await message.reply("Run this command in thread.")
+            await _deny_ephemeral(utils_service, message, "Run this command in thread.")
             return
         await list_command_handler_topic(message, command_info, session, app_context=app_context)
 
@@ -403,6 +404,15 @@ async def universal_command_handler(
 
     if action_type == "toggle":
         await handle_command(message, command_info, session, app_context=app_context)
+
+
+async def _deny_ephemeral(utils_service: Any, message: Message, text: str) -> None:
+    """Send a denial as an ephemeral message and remove the command message."""
+    if utils_service:
+        await utils_service.reply_ephemeral(message, text)
+        await utils_service.delete_now(message)
+    else:
+        await message.reply(text)
 
 
 async def handle_command(message: Message, command_info, session, app_context=None):
@@ -429,7 +439,7 @@ async def handle_command(message: Message, command_info, session, app_context=No
         # Sync removal to specialized DI services
         _sync_toggle_removal(app_context, db_value_type, chat_id)
 
-        info_message = await message.reply("Removed")
+        await utils_service.reply_ephemeral(message, "Removed")
     else:
         # Enable the feature
         value_to_set = command_args[0] if command_args else "1"
@@ -439,9 +449,7 @@ async def handle_command(message: Message, command_info, session, app_context=No
         # Sync addition to specialized DI services
         _sync_toggle_addition(app_context, db_value_type, chat_id, value_to_set)
 
-        info_message = await message.reply("Added")
-
-    await utils_service.sleep_and_delete(info_message, 5)
+        await utils_service.reply_ephemeral(message, "Added")
 
     with suppress(TelegramBadRequest):
         await asyncio.sleep(1)

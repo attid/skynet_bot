@@ -23,6 +23,21 @@ class UnbanCallbackData(CallbackData, prefix="unban"):
     chat_id: int
 
 
+def _ban_villain_label(reply_message: Message | None, user_id: int) -> str:
+    """Human-readable label of the banned user for the ban easter egg."""
+    target = reply_message.from_user if reply_message else None
+    if target:
+        return f"@{target.username}" if target.username else target.full_name or f"ID {user_id}"
+    return f"ID {user_id}"
+
+
+def _ban_celebration_text(ban_count: int, villain: str) -> str:
+    """Easter egg line for the admin who banned a villain."""
+    if ban_count <= 1:
+        return f"Ты молодец, поймал злодея {villain}!"
+    return f"Ты молодец, тобой сегодня уже забанено {ban_count} злодеев. Последний — {villain}."
+
+
 @router.message(Command(commands=["ban", "sban"]))
 async def cmd_ban(message: Message, session: AsyncSession, bot: Bot, app_context: AppContext, skyuser: SkyUser):
     if (
@@ -35,6 +50,7 @@ async def cmd_ban(message: Message, session: AsyncSession, bot: Bot, app_context
     utils_service = cast(Any, app_context.utils_service)
     feature_flags = cast(Any, app_context.feature_flags)
     moderation_service = cast(Any, app_context.moderation_service)
+    ban_stats_service = getattr(app_context, "ban_stats_service", None)
     skynet_admin = skyuser.is_skynet_admin()
     command_text = message.text or ""
     actor_username = message.from_user.username if message.from_user and message.from_user.username else "unknown"
@@ -43,13 +59,15 @@ async def cmd_ban(message: Message, session: AsyncSession, bot: Bot, app_context
     admin = await skyuser.is_admin()
 
     if not (skynet_admin or (admin and reply_message)):
-        await message.reply(skyuser.admin_denied_text("You are not my admin."))
+        await utils_service.reply_ephemeral(message, skyuser.admin_denied_text("You are not my admin."))
+        await utils_service.delete_now(message)
         return False
 
     with suppress(TelegramBadRequest):
         if reply_message:
             if not reply_message.from_user:
-                await message.reply("Cannot detect user in replied message.")
+                await utils_service.reply_ephemeral(message, "Cannot detect user in replied message.")
+                await utils_service.delete_now(message)
                 return
             user_id = reply_message.from_user.id
 
@@ -65,10 +83,14 @@ async def cmd_ban(message: Message, session: AsyncSession, bot: Bot, app_context
             try:
                 user_id = await moderation_service.get_user_id(session, command_text.split()[1])
             except ValueError as e:
-                await message.reply(str(e))
+                await utils_service.reply_ephemeral(message, str(e))
+                await utils_service.delete_now(message)
                 return
         else:
-            await message.reply("You need to specify user ID or @username and be skynet admin.")
+            await utils_service.reply_ephemeral(
+                message, "You need to specify user ID or @username and be skynet admin."
+            )
+            await utils_service.delete_now(message)
             return
 
         await moderation_service.ban_user(session, message.chat.id, user_id, bot)
@@ -79,28 +101,31 @@ async def cmd_ban(message: Message, session: AsyncSession, bot: Bot, app_context
             message.from_user.id if message.from_user else "unknown",
         )
 
-        msg = await message.answer(f"User (ID: {user_id}) has been banned.")
+        ban_text = f"User (ID: {user_id}) has been banned."
+        if ban_stats_service and message.from_user:
+            ban_count = ban_stats_service.record_ban(message.from_user.id)
+            villain = _ban_villain_label(reply_message, user_id)
+            ban_text = f"{ban_text}\n\n{_ban_celebration_text(ban_count, villain)}"
+        await utils_service.reply_ephemeral(message, ban_text)
         if reply_message is None:
             await bot.send_message(
                 chat_id=MTLChats.SpamGroup,
                 text=f"User (ID: {user_id}) has been banned by {actor_username} in {message.chat.title} chat.",
             )
 
-        # If the command is sban, delete the messages quickly
-        tm = 2 if command_text.startswith("/sban") else 10
-
-        await utils_service.sleep_and_delete(message, tm)
-        await utils_service.sleep_and_delete(msg, tm)
+        await utils_service.delete_now(message)
 
 
 @router.message(Command(commands=["unban"]))
 async def cmd_unban(message: Message, session: AsyncSession, bot: Bot, app_context: AppContext, skyuser: SkyUser):
-    if not app_context or not app_context.moderation_service:
-        raise ValueError("app_context with moderation_service required")
+    if not app_context or not app_context.moderation_service or not app_context.utils_service:
+        raise ValueError("app_context with moderation_service and utils_service required")
     moderation_service = cast(Any, app_context.moderation_service)
+    utils_service = cast(Any, app_context.utils_service)
     command_text = message.text or ""
     if not skyuser.is_skynet_admin():
-        await message.reply("You are not my admin.")
+        await utils_service.reply_ephemeral(message, "You are not my admin.")
+        await utils_service.delete_now(message)
         return False
 
     if len(command_text.split()) > 1:
@@ -111,7 +136,8 @@ async def cmd_unban(message: Message, session: AsyncSession, bot: Bot, app_conte
             else:
                 user_id = await moderation_service.get_user_id(session, param)
         except ValueError as e:
-            await message.reply(str(e))
+            await utils_service.reply_ephemeral(message, str(e))
+            await utils_service.delete_now(message)
             return
 
         await moderation_service.unban_user(session, message.chat.id, user_id, bot)
@@ -130,17 +156,20 @@ async def cmd_unban(message: Message, session: AsyncSession, bot: Bot, app_conte
             ),
         )
 
-        await message.reply(f"User (ID: {user_id}) has been unbanned.")
+        await utils_service.reply_ephemeral(message, f"User (ID: {user_id}) has been unbanned.")
+        await utils_service.delete_now(message)
     else:
-        await message.reply("You need to specify user ID or @username.")
+        await utils_service.reply_ephemeral(message, "You need to specify user ID or @username.")
+        await utils_service.delete_now(message)
 
 
 @update_command_info("/test_id", "Узнать статус ID в списке заблокированных\nПример: /test_id id или /test_id -100id")
 @router.message(Command(commands=["test_id"]))
 async def cmd_test_id(message: Message, session: AsyncSession, bot: Bot, app_context: AppContext, skyuser: SkyUser):
-    if not app_context or not app_context.moderation_service:
-        raise ValueError("app_context with moderation_service required")
+    if not app_context or not app_context.moderation_service or not app_context.utils_service:
+        raise ValueError("app_context with moderation_service and utils_service required")
     moderation_service = cast(Any, app_context.moderation_service)
+    utils_service = cast(Any, app_context.utils_service)
     command_text = message.text or ""
     if len(command_text.split()) > 1:
         param = command_text.split()[1]
@@ -150,7 +179,8 @@ async def cmd_test_id(message: Message, session: AsyncSession, bot: Bot, app_con
             else:
                 user_id = await moderation_service.get_user_id(session, param)
         except ValueError as e:
-            await message.reply(str(e))
+            await utils_service.reply_ephemeral(message, str(e))
+            await utils_service.delete_now(message)
             return
     else:
         sender_id = message.from_user.id if message.from_user else skyuser.sender_chat_id
@@ -167,7 +197,8 @@ async def cmd_test_id(message: Message, session: AsyncSession, bot: Bot, app_con
     else:
         message_text = f"unknown status {user_status}"
 
-    await message.reply(f"User ID: {user_id}, Type: {message_text}")
+    await utils_service.reply_ephemeral(message, f"User ID: {user_id}, Type: {message_text}")
+    await utils_service.delete_now(message)
 
 
 @router.callback_query(UnbanCallbackData.filter())

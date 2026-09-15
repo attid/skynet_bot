@@ -945,9 +945,7 @@ async def test_del_command_success_for_topic_admin(mock_telegram, router_app_con
     assert 10 in deleted_ids
     assert 11 in deleted_ids
 
-    assert len(router_app_context.utils_service.sleep_and_delete_calls) == 1
-    _, seconds = router_app_context.utils_service.sleep_and_delete_calls[0]
-    assert seconds == 5
+    assert len(router_app_context.utils_service.delete_now_calls) == 1
 
 
 @pytest.mark.asyncio
@@ -990,8 +988,8 @@ async def test_del_command_not_local_admin(mock_telegram, router_app_context):
     req = next((r for r in requests if r["method"] == "sendMessage"), None)
     assert req is not None
     assert "You are not local admin" in req["data"]["text"]
-    assert len(router_app_context.utils_service.sleep_and_delete_calls) == 2
-    assert all(seconds == 5 for _, seconds in router_app_context.utils_service.sleep_and_delete_calls)
+    assert len(router_app_context.utils_service.reply_ephemeral_calls) == 1
+    assert len(router_app_context.utils_service.delete_now_calls) == 1
 
 
 @pytest.mark.asyncio
@@ -1024,8 +1022,8 @@ async def test_del_command_requires_reply(mock_telegram, router_app_context):
     req = next((r for r in requests if r["method"] == "sendMessage"), None)
     assert req is not None
     assert "reply" in req["data"]["text"].lower()
-    assert len(router_app_context.utils_service.sleep_and_delete_calls) == 2
-    assert all(seconds == 5 for _, seconds in router_app_context.utils_service.sleep_and_delete_calls)
+    assert len(router_app_context.utils_service.reply_ephemeral_calls) == 1
+    assert len(router_app_context.utils_service.delete_now_calls) == 1
 
 
 @pytest.mark.asyncio
@@ -1053,8 +1051,8 @@ async def test_del_command_requires_topic(mock_telegram, router_app_context):
     req = next((r for r in requests if r["method"] == "sendMessage"), None)
     assert req is not None
     assert "This command must be used in topic." in req["data"]["text"]
-    assert len(router_app_context.utils_service.sleep_and_delete_calls) == 2
-    assert all(seconds == 5 for _, seconds in router_app_context.utils_service.sleep_and_delete_calls)
+    assert len(router_app_context.utils_service.reply_ephemeral_calls) == 1
+    assert len(router_app_context.utils_service.delete_now_calls) == 1
 
 
 @pytest.mark.asyncio
@@ -1096,8 +1094,8 @@ async def test_del_command_requires_local_admins(mock_telegram, router_app_conte
     req = next((r for r in requests if r["method"] == "sendMessage"), None)
     assert req is not None
     assert "Local admins not set yet" in req["data"]["text"]
-    assert len(router_app_context.utils_service.sleep_and_delete_calls) == 2
-    assert all(seconds == 5 for _, seconds in router_app_context.utils_service.sleep_and_delete_calls)
+    assert len(router_app_context.utils_service.reply_ephemeral_calls) == 1
+    assert len(router_app_context.utils_service.delete_now_calls) == 1
 
 
 @pytest.mark.asyncio

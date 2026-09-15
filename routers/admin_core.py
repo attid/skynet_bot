@@ -90,11 +90,10 @@ async def _resolve_mute_target(message: Message, app_context: AppContext) -> tup
     return None
 
 
-async def _reply_and_cleanup(message: Message, utils_service: Any, text: str, seconds: int = 5) -> None:
-    """Send a short-lived reply and schedule command cleanup."""
-    info_message = await message.reply(text)
-    await utils_service.sleep_and_delete(info_message, seconds)
-    await utils_service.sleep_and_delete(message, seconds)
+async def _reply_and_cleanup(message: Message, utils_service: Any, text: str) -> None:
+    """Send an ephemeral confirmation to the sender and remove the command message."""
+    await utils_service.reply_ephemeral(message, text)
+    await utils_service.delete_now(message)
 
 
 async def _safe_send_chat_status_message(bot: Bot, chat_id: int, text: str) -> None:
@@ -153,13 +152,18 @@ async def _log_and_delete_target(
 
 
 @router.message(F.text.startswith("!ro"))
-async def cmd_set_ro(message: Message, skyuser: SkyUser):
+async def cmd_set_ro(message: Message, app_context: AppContext, skyuser: SkyUser):
+    if not app_context or not app_context.utils_service:
+        raise ValueError("app_context with utils_service required")
+    utils_service = cast(Any, app_context.utils_service)
     if not await skyuser.is_admin():
-        await message.reply(skyuser.admin_denied_text())
+        await utils_service.reply_ephemeral(message, skyuser.admin_denied_text())
+        await utils_service.delete_now(message)
         return False
 
     if message.reply_to_message is None and message.external_reply is None:
-        await message.reply("Please send for reply message to set ro")
+        await utils_service.reply_ephemeral(message, "Please send for reply message to set ro")
+        await utils_service.delete_now(message)
         return
 
     if message.reply_to_message:
@@ -170,11 +174,13 @@ async def cmd_set_ro(message: Message, skyuser: SkyUser):
         target_user = None
 
     if not target_user:
-        await message.reply("Please reply to a user message.")
+        await utils_service.reply_ephemeral(message, "Please reply to a user message.")
+        await utils_service.delete_now(message)
         return
     delta = await parse_timedelta_from_message(message)
     if not delta:
-        await message.reply("Unable to parse duration.")
+        await utils_service.reply_ephemeral(message, "Unable to parse duration.")
+        await utils_service.delete_now(message)
         return
     try:
         await message.chat.restrict(
@@ -185,43 +191,58 @@ async def cmd_set_ro(message: Message, skyuser: SkyUser):
             until_date=delta,
         )
     except TelegramBadRequest as e:
-        await message.reply(f"Failed to restrict user: {e.message}")
+        await utils_service.reply_ephemeral(message, f"Failed to restrict user: {e.message}")
+        await utils_service.delete_now(message)
         return
 
     user = target_user.username if target_user.username else target_user.full_name
-    await message.reply(f"{user} was set ro for {delta}")
+    await utils_service.reply_ephemeral(message, f"{user} was set ro for {delta}")
+    await utils_service.delete_now(message)
 
 
 @router.message(Command(commands=["topic"]))
-async def cmd_create_topic(message: Message, skyuser: SkyUser):
+async def cmd_create_topic(message: Message, app_context: AppContext, skyuser: SkyUser):
+    if not app_context or not app_context.utils_service:
+        raise ValueError("app_context with utils_service required")
+    utils_service = cast(Any, app_context.utils_service)
     if not await skyuser.is_admin():
-        await message.reply(skyuser.admin_denied_text("You are not an admin."))
+        await utils_service.reply_ephemeral(message, skyuser.admin_denied_text("You are not an admin."))
+        await utils_service.delete_now(message)
         return
 
     if not message.chat.is_forum:
-        await message.reply("Topics are not enabled in this chat.")
+        await utils_service.reply_ephemeral(message, "Topics are not enabled in this chat.")
+        await utils_service.delete_now(message)
         return
 
     command_parts = (message.text or "").split(maxsplit=2)
     if len(command_parts) != 3:
-        await message.reply("Incorrect command format. Use: /topic 🔵 Topic Name")
+        await utils_service.reply_ephemeral(message, "Incorrect command format. Use: /topic 🔵 Topic Name")
+        await utils_service.delete_now(message)
         return
 
     emoji, topic_name = command_parts[1], command_parts[2]
 
     try:
         if not message.bot:
-            await message.reply("Bot is not available for this message.")
+            await utils_service.reply_ephemeral(message, "Bot is not available for this message.")
+            await utils_service.delete_now(message)
             return
         new_topic = await message.bot.create_forum_topic(
             name=topic_name, icon_custom_emoji_id=emoji, chat_id=message.chat.id
         )
-        await message.reply(f"New topic '{topic_name}' created successfully with ID: {new_topic.message_thread_id}")
+        await utils_service.reply_ephemeral(
+            message, f"New topic '{topic_name}' created successfully with ID: {new_topic.message_thread_id}"
+        )
+        await utils_service.delete_now(message)
     except TelegramBadRequest as e:
         if "CHAT_NOT_MODIFIED" in str(e):
-            await message.reply("Failed to create topic. Make sure the emoji is valid and the topic name is unique.")
+            await utils_service.reply_ephemeral(
+                message, "Failed to create topic. Make sure the emoji is valid and the topic name is unique."
+            )
         else:
-            await message.reply(f"An error occurred while creating the topic: {str(e)}")
+            await utils_service.reply_ephemeral(message, f"An error occurred while creating the topic: {str(e)}")
+        await utils_service.delete_now(message)
 
 
 @update_command_info("/all", "тегнуть всех пользователей. работает зависимо от чата. и только в рабочих чатах")
@@ -252,20 +273,21 @@ async def cmd_check_entry_channel(message: Message, bot: Bot, app_context: AppCo
         raise ValueError("app_context with group_service and utils_service required")
     utils_service = cast(Any, app_context.utils_service)
     if not await skyuser.is_admin():
-        await message.reply(skyuser.admin_denied_text())
+        await utils_service.reply_ephemeral(message, skyuser.admin_denied_text())
+        await utils_service.delete_now(message)
         return
 
     try:
         checked_count, action_count = await run_entry_channel_check(bot, message.chat.id, app_context=app_context)
     except ValueError:
-        info_message = await message.reply("Настройка обязательного канала не включена в этом чате.")
-        await utils_service.sleep_and_delete(info_message, 10)
-        await utils_service.sleep_and_delete(message, 10)
+        await utils_service.reply_ephemeral(message, "Настройка обязательного канала не включена в этом чате.")
+        await utils_service.delete_now(message)
         return
 
-    info_message = await message.reply(f"Проверено участников: {checked_count}. Применено ограничений: {action_count}.")
-    await utils_service.sleep_and_delete(info_message, 30)
-    await utils_service.sleep_and_delete(message, 30)
+    await utils_service.reply_ephemeral(
+        message, f"Проверено участников: {checked_count}. Применено ограничений: {action_count}."
+    )
+    await utils_service.delete_now(message)
 
 
 @router.message(Command(commands=["delete_dead_members"]))
@@ -328,30 +350,36 @@ async def cmd_mute(message: Message, app_context: AppContext, skyuser: SkyUser):
         raise ValueError("app_context with admin_service and db_service required")
     admin_service = cast(Any, app_context.admin_service)
     db_service = cast(Any, app_context.db_service)
+    utils_service = cast(Any, app_context.utils_service)
     if message.message_thread_id is None:
-        await message.reply("This command must be used in topic.")
+        await utils_service.reply_ephemeral(message, "This command must be used in topic.")
+        await utils_service.delete_now(message)
         return False
     thread_id = message.message_thread_id
     chat_thread_key = f"{message.chat.id}-{message.message_thread_id}"
 
     if not _has_topic_admins(message.chat.id, thread_id, app_context):
-        await message.reply("Local admins not set yet")
+        await utils_service.reply_ephemeral(message, "Local admins not set yet")
+        await utils_service.delete_now(message)
         return False
 
     if not skyuser.is_topic_admin(message.chat.id, thread_id):
-        await message.reply("You are not local admin")
+        await utils_service.reply_ephemeral(message, "You are not local admin")
+        await utils_service.delete_now(message)
         return False
 
     # Resolve target: mention > reply
     target = await _resolve_mute_target(message, app_context)
     if target is None:
-        await message.reply("Specify user by reply or @username")
+        await utils_service.reply_ephemeral(message, "Specify user by reply or @username")
+        await utils_service.delete_now(message)
         return
     user_id, user = target
 
     delta = await parse_timedelta_from_message(message)
     if not delta:
-        await message.reply("Unable to parse mute duration")
+        await utils_service.reply_ephemeral(message, "Unable to parse mute duration")
+        await utils_service.delete_now(message)
         return
     end_time_str = (datetime.now() + delta).isoformat()
 
@@ -360,7 +388,8 @@ async def cmd_mute(message: Message, app_context: AppContext, skyuser: SkyUser):
     all_mutes = admin_service.get_all_topic_mutes()
     await db_service.save_bot_value(0, BotValueTypes.TopicMutes, json.dumps(all_mutes))
 
-    await message.reply(f"{user} was set mute for {delta} in topic {chat_thread_key}")
+    await utils_service.reply_ephemeral(message, f"{user} was set mute for {delta} in topic {chat_thread_key}")
+    await utils_service.delete_now(message)
 
 
 @update_command_info("/unmute", "Снимает мьют пользователя в текущей ветке (reply или @username)")
@@ -370,38 +399,45 @@ async def cmd_unmute(message: Message, app_context: AppContext, skyuser: SkyUser
         raise ValueError("app_context with admin_service and db_service required")
     admin_service = cast(Any, app_context.admin_service)
     db_service = cast(Any, app_context.db_service)
+    utils_service = cast(Any, app_context.utils_service)
     if message.message_thread_id is None:
-        await message.reply("This command must be used in topic.")
+        await utils_service.reply_ephemeral(message, "This command must be used in topic.")
+        await utils_service.delete_now(message)
         return False
     thread_id = message.message_thread_id
     chat_thread_key = f"{message.chat.id}-{message.message_thread_id}"
 
     if not _has_topic_admins(message.chat.id, thread_id, app_context):
-        await message.reply("Local admins not set yet")
+        await utils_service.reply_ephemeral(message, "Local admins not set yet")
+        await utils_service.delete_now(message)
         return False
 
     if not skyuser.is_topic_admin(message.chat.id, thread_id):
-        await message.reply("You are not local admin")
+        await utils_service.reply_ephemeral(message, "You are not local admin")
+        await utils_service.delete_now(message)
         return False
 
     # Resolve target: mention > reply
     target = await _resolve_mute_target(message, app_context)
     if target is None:
-        await message.reply("Specify user by reply or @username")
+        await utils_service.reply_ephemeral(message, "Specify user by reply or @username")
+        await utils_service.delete_now(message)
         return
     user_id, user = target
 
     # Check if user is actually muted
     topic_mutes = admin_service.get_topic_mutes_by_key(chat_thread_key)
     if not topic_mutes or user_id not in topic_mutes:
-        await message.reply(f"{user} is not muted in this topic")
+        await utils_service.reply_ephemeral(message, f"{user} is not muted in this topic")
+        await utils_service.delete_now(message)
         return
 
     admin_service.remove_user_mute_by_key(chat_thread_key, user_id)
     all_mutes = admin_service.get_all_topic_mutes()
     await db_service.save_bot_value(0, BotValueTypes.TopicMutes, json.dumps(all_mutes))
 
-    await message.reply(f"{user} was unmuted in topic {chat_thread_key}")
+    await utils_service.reply_ephemeral(message, f"{user} was unmuted in topic {chat_thread_key}")
+    await utils_service.delete_now(message)
 
 
 @update_command_info("/show_mute", "Показывает пользователей, которые заблокированы в текущей ветке")
@@ -411,25 +447,30 @@ async def cmd_show_mutes(message: Message, app_context: AppContext, skyuser: Sky
         raise ValueError("app_context with admin_service and db_service required")
     admin_service = cast(Any, app_context.admin_service)
     db_service = cast(Any, app_context.db_service)
+    utils_service = cast(Any, app_context.utils_service)
     if message.message_thread_id is None:
-        await message.reply("This command must be used in topic.")
+        await utils_service.reply_ephemeral(message, "This command must be used in topic.")
+        await utils_service.delete_now(message)
         return False
     thread_id = message.message_thread_id
     chat_thread_key = f"{message.chat.id}-{message.message_thread_id}"
 
     if not _has_topic_admins(message.chat.id, thread_id, app_context):
-        await message.reply("Local admins not set yet")
+        await utils_service.reply_ephemeral(message, "Local admins not set yet")
+        await utils_service.delete_now(message)
         return False
 
     if not skyuser.is_topic_admin(message.chat.id, thread_id):
-        await message.reply("You are not local admin")
+        await utils_service.reply_ephemeral(message, "You are not local admin")
+        await utils_service.delete_now(message)
         return False
 
     # Get mutes using DI service
     topic_mutes = admin_service.get_topic_mutes_by_key(chat_thread_key)
 
     if not topic_mutes:
-        await message.reply("No users are currently muted in this topic")
+        await utils_service.reply_ephemeral(message, "No users are currently muted in this topic")
+        await utils_service.delete_now(message)
         return
 
     current_time = datetime.now()
@@ -458,9 +499,10 @@ async def cmd_show_mutes(message: Message, app_context: AppContext, skyuser: Sky
 
     if muted_users:
         mute_list = "\n".join(muted_users)
-        await message.reply(f"Currently muted users in this topic:\n{mute_list}")
+        await utils_service.reply_ephemeral(message, f"Currently muted users in this topic:\n{mute_list}")
     else:
-        await message.reply("No users are currently muted in this topic")
+        await utils_service.reply_ephemeral(message, "No users are currently muted in this topic")
+    await utils_service.delete_now(message)
 
 
 @update_command_info("/del", "Удаляет сообщение в текущей ветке по reply")
@@ -513,7 +555,7 @@ async def cmd_del_message(message: Message, bot: Bot, app_context: AppContext, s
         await _reply_and_cleanup(message, utils_service, "Unable to delete this message")
         return False
 
-    await utils_service.sleep_and_delete(message, 5)
+    await utils_service.delete_now(message)
     return True
 
 
