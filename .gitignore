@@ -152,3 +152,6 @@ members_key.json
 /AGENTS.md
 /test*.py
 *.swp
+
+# ZCode workspace settings
+/.claude/
