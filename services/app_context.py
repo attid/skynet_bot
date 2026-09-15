@@ -26,6 +26,7 @@ from services.database_service import DatabaseService
 from services.channel_link_service import ChannelLinkService
 from services.selfmod_service import SelfmodService
 from services.stellar_notification_service import StellarNotificationService
+from services.burst_spam_service import BurstSpamService
 
 
 from typing import Any, cast
@@ -59,6 +60,7 @@ class AppContext:
     selfmod_service: SelfmodService
     stellar_notification_service: StellarNotificationService | None
     message_thread_cache_service: Any
+    burst_spam_service: BurstSpamService
 
     def __init__(self):
         self.grist_service = cast(GristService, None)
@@ -89,6 +91,7 @@ class AppContext:
         self.selfmod_service = cast(SelfmodService, None)
         self.stellar_notification_service = None
         self.message_thread_cache_service = None
+        self.burst_spam_service = cast(BurstSpamService, None)
 
     def check_user(self, user_id: int):
         """Check user status for antispam. Uses spam_status_service cache."""
@@ -129,6 +132,7 @@ class AppContext:
         ctx.spam_status_service = SpamStatusService()
         ctx.channel_link_service = ChannelLinkService()
         ctx.selfmod_service = SelfmodService(ctx.db_service)
+        ctx.burst_spam_service = BurstSpamService()
         # stellar_notification_service is initialized later in start.py
         # when session_pool is available
 

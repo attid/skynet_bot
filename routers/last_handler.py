@@ -27,6 +27,7 @@ from other.constants import MTLChats, BotValueTypes
 from other.pyro_tools import MessageInfo, pyro_update_msg_info
 from other.miniapps_tools import miniapps
 from shared.domain.user import SpamStatus
+from services.burst_spam_service import BurstHit
 from services.skyuser import SkyUser
 
 router = Router()
@@ -212,7 +213,82 @@ async def set_vote(message, app_context=None):
                 ]
             ]
         )
-        await message.reply(text="Please help me detect spam messages", reply_markup=kb_reply)
+        panel = await message.reply(text="Please help me detect spam messages", reply_markup=kb_reply)
+        return panel.message_id
+    return None
+
+
+async def _handle_burst_spam(message: Message, bot: Bot, session: Any, app_context, user_id: int, hit: BurstHit):
+    """Delete every copy of a NEW user's duplicate burst and restrict the user.
+
+    Mirrors delete_and_log_spam: restrict, forward a sample to the spam group
+    with Restore/Kick buttons, then remove all tracked copies and their
+    first-vote panels so nothing is left in the chat.
+    """
+    chat_id = message.chat.id
+    with suppress(TelegramBadRequest):
+        await message.chat.restrict(
+            user_id,
+            permissions=ChatPermissions(
+                can_send_messages=False, can_send_media_messages=False, can_send_other_messages=False
+            ),
+        )
+
+    sample = await message.forward(MTLChats.SpamGroup)
+    chat_link = f"@{message.chat.username}" if message.chat.username else message.chat.invite_link
+    msg_text = (
+        f"Сообщение из чата {html.escape(message.chat.title or '')} {chat_link}\n"
+        f"duplicate burst x{hit.copies} (user_id={user_id})"
+    )
+    buttons = [
+        InlineKeyboardButton(
+            text="Restore. Its good msg !",
+            callback_data=SpamCheckCallbackData(
+                message_id=message.message_id,
+                chat_id=chat_id,
+                user_id=user_id,
+                new_message_id=sample.message_id,
+                message_thread_id=message.message_thread_id or 0,
+                good=True,
+            ).pack(),
+        ),
+        InlineKeyboardButton(
+            text="Its spam! Kick him !",
+            callback_data=SpamCheckCallbackData(
+                message_id=message.message_id,
+                chat_id=chat_id,
+                user_id=user_id,
+                new_message_id=sample.message_id,
+                message_thread_id=message.message_thread_id or 0,
+                good=False,
+            ).pack(),
+        ),
+    ]
+    await sample.reply(
+        msg_text,
+        disable_web_page_preview=True,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[button] for button in buttons]),
+    )
+
+    for record in hit.records:
+        if record.panel_message_id:
+            with suppress(TelegramBadRequest):
+                await bot.delete_message(chat_id, record.panel_message_id)
+        with suppress(TelegramBadRequest):
+            await bot.delete_message(chat_id, record.message_id)
+    with suppress(TelegramBadRequest):
+        await message.delete()
+
+    _log_moderation_action(
+        action="restrict",
+        actor_id=None,
+        actor_username=None,
+        target_user_id=user_id,
+        chat_id=chat_id,
+        source_handler="routers.last_handler._handle_burst_spam",
+        result="success",
+    )
+    await _get_db_service(app_context).save_bot_user(user_id, None, 2)
 
 
 async def check_alert(bot, message, session, app_context=None):
@@ -534,6 +610,18 @@ async def cmd_last_check(message: Message, session: Any, bot: Bot, state: FSMCon
             # If the message was deleted during spam check, we stop processing
             return
 
+    from_user_id = message.from_user.id if message.from_user else 0
+    user_id = message.sender_chat.id if message.sender_chat else from_user_id
+
+    # Burst duplicate check: a NEW user repeating identical text is spam bypass,
+    # delete every copy at once instead of waiting for votes
+    burst_service = getattr(app_context, "burst_spam_service", None) if app_context else None
+    if burst_service is not None and _get_spam_status(app_context, user_id) == SpamStatus.NEW:
+        hit = burst_service.register(chat_id, user_id, message.message_id, message.text or "")
+        if hit is not None:
+            await _handle_burst_spam(message, bot, session, app_context, user_id, hit)
+            return
+
     # Check need_decode using DI service
     needs_decode = False
     if app_context and app_context.bot_state_service:
@@ -560,12 +648,12 @@ async def cmd_last_check(message: Message, session: Any, bot: Bot, state: FSMCon
 
     await check_alert(bot, message, session, app_context=app_context)
 
-    from_user_id = message.from_user.id if message.from_user else 0
-    user_id = message.sender_chat.id if message.sender_chat else from_user_id
     # Check user type using DI service
     # SpamStatus.NEW == 0 means new user, triggers first vote
     if _get_spam_status(app_context, user_id) == SpamStatus.NEW:
-        await set_vote(message, app_context=app_context)
+        panel_message_id = await set_vote(message, app_context=app_context)
+        if burst_service is not None and panel_message_id:
+            burst_service.register_panel(chat_id, user_id, message.message_id, panel_message_id)
 
     await _get_db_service(app_context).save_bot_user(
         user_id, message.from_user.username if message.from_user and message.from_user.username else None, 1
