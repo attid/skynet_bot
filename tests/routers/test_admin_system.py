@@ -478,6 +478,7 @@ async def test_sync_post_no_reply(mock_telegram, router_app_context):
                     "can_post_stories": False,
                     "can_edit_stories": False,
                     "can_delete_stories": False,
+                    "can_send_welcome_messages": False,
                 }
             ],
         },
@@ -555,6 +556,7 @@ async def test_resync_post_no_reply(mock_telegram, router_app_context):
                     "can_post_stories": False,
                     "can_edit_stories": False,
                     "can_delete_stories": False,
+                    "can_send_welcome_messages": False,
                 }
             ],
         },
@@ -1167,6 +1169,7 @@ async def test_sync_post_with_forward(mock_telegram, router_app_context):
                     "can_post_stories": False,
                     "can_edit_stories": False,
                     "can_delete_stories": False,
+                    "can_send_welcome_messages": False,
                 }
             ],
         },
@@ -1233,6 +1236,7 @@ async def test_resync_existing_sync(mock_telegram, router_app_context):
                     "can_post_stories": False,
                     "can_edit_stories": False,
                     "can_delete_stories": False,
+                    "can_send_welcome_messages": False,
                 }
             ],
         },
@@ -1314,6 +1318,7 @@ async def test_resync_no_keyboard(mock_telegram, router_app_context):
                     "can_post_stories": False,
                     "can_edit_stories": False,
                     "can_delete_stories": False,
+                    "can_send_welcome_messages": False,
                 }
             ],
         },
@@ -1628,6 +1633,7 @@ async def test_resync_post_success(mock_telegram, router_app_context):
                     "can_post_stories": False,
                     "can_edit_stories": False,
                     "can_delete_stories": False,
+                    "can_send_welcome_messages": False,
                 }
             ],
         },
@@ -1703,6 +1709,7 @@ async def test_resync_invalid_url_format(mock_telegram, router_app_context):
                     "can_post_stories": False,
                     "can_edit_stories": False,
                     "can_delete_stories": False,
+                    "can_send_welcome_messages": False,
                 }
             ],
         },
@@ -1771,6 +1778,7 @@ async def test_resync_no_edit_button(mock_telegram, router_app_context):
                     "can_post_stories": False,
                     "can_edit_stories": False,
                     "can_delete_stories": False,
+                    "can_send_welcome_messages": False,
                 }
             ],
         },

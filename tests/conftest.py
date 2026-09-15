@@ -213,12 +213,14 @@ async def mock_telegram(telegram_server_config):
                         "poll": {
                             "id": str(random.randint(1, 1000)),
                             "question": "Q",
-                            "options": [{"text": "A", "voter_count": 0}],
+                            "options": [{"persistent_id": "pid_A", "text": "A", "voter_count": 0}],
                             "total_voter_count": 0,
                             "is_closed": False,
                             "is_anonymous": True,
                             "type": "regular",
                             "allows_multiple_answers": False,
+                            "allows_revoting": False,
+                            "members_only": False,
                         },
                     },
                 }

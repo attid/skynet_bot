@@ -58,6 +58,7 @@ def telegram_admin(username, status="administrator", user_id=1):
                 "can_post_stories": False,
                 "can_edit_stories": False,
                 "can_delete_stories": False,
+                "can_send_welcome_messages": False,
             }
         )
     else:

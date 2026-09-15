@@ -29,12 +29,14 @@ async def test_poll_command(mock_telegram, router_app_context):
         poll=types.Poll(
             id="p1",
             question="Q?",
-            options=[types.PollOption(text="A", voter_count=0)],
+            options=[types.PollOption(persistent_id="pid_A", text="A", voter_count=0)],
             total_voter_count=0,
             is_closed=False,
             is_anonymous=True,
             type="regular",
             allows_multiple_answers=False,
+            allows_revoting=False,
+            members_only=False,
         ),
     )
 
@@ -124,12 +126,14 @@ async def test_apoll_command(mock_telegram, router_app_context):
         poll=types.Poll(
             id="p1",
             question="Q?",
-            options=[types.PollOption(text="A", voter_count=0)],
+            options=[types.PollOption(persistent_id="pid_A", text="A", voter_count=0)],
             total_voter_count=0,
             is_closed=False,
             is_anonymous=True,
             type="regular",
             allows_multiple_answers=False,
+            allows_revoting=False,
+            members_only=False,
         ),
     )
 
@@ -172,7 +176,10 @@ async def test_poll_answer(mock_telegram, router_app_context):
     update = types.Update(
         update_id=4,
         poll_answer=types.PollAnswer(
-            poll_id="p1", user=types.User(id=999, is_bot=False, first_name="User", username="user"), option_ids=[0]
+            poll_id="p1",
+            user=types.User(id=999, is_bot=False, first_name="User", username="user"),
+            option_ids=[0],
+            option_persistent_ids=["pid_Opt1"],
         ),
     )
 
@@ -197,12 +204,14 @@ async def test_channel_post_creates_poll(mock_telegram, router_app_context):
     poll = types.Poll(
         id="poll123",
         question="Channel Question",
-        options=[types.PollOption(text="Opt1", voter_count=0)],
+        options=[types.PollOption(persistent_id="pid_Opt1", text="Opt1", voter_count=0)],
         total_voter_count=0,
         is_closed=False,
         is_anonymous=False,
         type="regular",
         allows_multiple_answers=False,
+        allows_revoting=False,
+        members_only=False,
     )
 
     update = types.Update(
@@ -391,12 +400,14 @@ async def test_apoll_check_reply(mock_telegram, router_app_context):
     poll = types.Poll(
         id="321",
         question="Assoc Poll",
-        options=[types.PollOption(text="Yes", voter_count=0)],
+        options=[types.PollOption(persistent_id="pid_Yes", text="Yes", voter_count=0)],
         total_voter_count=0,
         is_closed=False,
         is_anonymous=False,
         type="regular",
         allows_multiple_answers=False,
+        allows_revoting=False,
+        members_only=False,
     )
 
     update = types.Update(
@@ -441,7 +452,10 @@ async def test_poll_answer_user_not_found(mock_telegram, router_app_context):
     update = types.Update(
         update_id=12,
         poll_answer=types.PollAnswer(
-            poll_id="p1", user=types.User(id=999, is_bot=False, first_name="User", username="user"), option_ids=[0]
+            poll_id="p1",
+            user=types.User(id=999, is_bot=False, first_name="User", username="user"),
+            option_ids=[0],
+            option_persistent_ids=["pid_Opt1"],
         ),
     )
 

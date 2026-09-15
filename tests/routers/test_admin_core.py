@@ -1593,6 +1593,7 @@ async def test_on_my_chat_member_made_admin(mock_telegram, router_app_context):
             can_post_stories=False,
             can_edit_stories=False,
             can_delete_stories=False,
+            can_send_welcome_messages=False,
         ),
     )
     update = types.Update(update_id=10, my_chat_member=update_event)
@@ -1635,6 +1636,8 @@ async def test_on_my_chat_member_restricted(mock_telegram, router_app_context):
             can_send_polls=False,
             can_send_other_messages=False,
             can_add_web_page_previews=False,
+            can_react_to_messages=False,
+            can_edit_tag=False,
             can_manage_topics=False,
             until_date=datetime.datetime.now(),
         ),
@@ -2955,6 +2958,7 @@ async def test_on_my_chat_member_other_status(mock_telegram, router_app_context)
             can_post_stories=False,
             can_edit_stories=False,
             can_delete_stories=False,
+            can_send_welcome_messages=False,
         ),
         new_chat_member=types.ChatMemberMember(user=bot_user),
     )

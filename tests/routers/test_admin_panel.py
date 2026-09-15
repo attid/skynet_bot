@@ -917,6 +917,7 @@ def make_admins_response(owner_id=None, admin_ids=None):
                     "can_post_stories": False,
                     "can_edit_stories": False,
                     "can_delete_stories": False,
+                    "can_send_welcome_messages": False,
                 }
             )
     return {"ok": True, "result": result}
