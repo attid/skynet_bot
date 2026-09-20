@@ -3,6 +3,7 @@
 
 import html
 import json
+import re
 from contextlib import suppress
 from typing import Any, cast
 
@@ -473,6 +474,10 @@ def feature_flags_kb(
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+# Shared cap for welcome previews: fits Telegram's 4096 limit with room for headers.
+_WELCOME_PREVIEW_LIMIT = 3500
+
+
 def _preview_text(value: Any, max_length: int) -> str:
     """Return shortened string value for admin UI."""
     raw = "" if value is None else str(value)
@@ -485,37 +490,79 @@ def _preview_text(value: Any, max_length: int) -> str:
     return normalized[: max_length - 3] + "..."
 
 
+def _preview_html(value: Any, max_length: int) -> str:
+    """Return shortened HTML-bearing value for admin UI.
+
+    Truncation may fall inside a tag; strip the dangling partial tag so the
+    result stays valid HTML for parse_mode=HTML rendering.
+    """
+    raw = "" if value is None else str(value)
+    if not raw:
+        return "Not set"
+
+    normalized = raw.replace("\r\n", "\n").strip()
+    if len(normalized) <= max_length:
+        return normalized
+    cut = re.sub(r"<[^>]*$", "", normalized[:max_length])
+    return cut.rstrip() + "..."
+
+
 def _format_welcome_settings(chat_id: int, title: str, app_context: AppContext) -> list[str]:
-    """Build display lines for welcome settings."""
+    """Build display lines for welcome settings.
+
+    Message preview is rendered (not escaped) to mirror what a new member sees,
+    and the button line reflects the captcha mode used on delivery:
+    $$COLOR$$ in the text switches the single welcome button to the emoji captcha.
+    """
     welcome_msg = app_context.config_service.get_welcome_message(chat_id) if app_context.config_service else None
     welcome_btn = app_context.config_service.get_welcome_button(chat_id) if app_context.config_service else None
+    feature_flags = app_context.feature_flags if app_context else None
 
-    msg_display = _preview_text(welcome_msg, 450)
+    msg_display = _preview_html(welcome_msg, _WELCOME_PREVIEW_LIMIT)
     btn_display = _preview_text(welcome_btn, 120)
 
-    return [
+    has_color_placeholder = bool(welcome_msg) and "$$COLOR$$" in (welcome_msg or "")
+    captcha_enabled = feature_flags.is_enabled(chat_id, "captcha") if feature_flags else False
+
+    lines = [
         f"Welcome Settings: {html.escape(title)}",
         "",
-        f"Message: {html.escape(msg_display)}",
-        f"Button: {html.escape(btn_display)}",
+        f"Message: {msg_display}",
     ]
+
+    if not captcha_enabled:
+        lines.append("Button: not shown (captcha disabled)")
+        if has_color_placeholder:
+            lines.append("Note: $$COLOR$$ stays unreplaced while captcha is disabled")
+    elif has_color_placeholder:
+        lines.append("Button: emoji captcha (colored squares) — welcome button text is not used")
+    else:
+        lines.append(f"Button: {html.escape(btn_display)}")
+
+    if feature_flags and feature_flags.is_enabled(chat_id, "selfmod"):
+        lines.append("Note: selfmod is enabled — welcome message is not sent")
+
+    return lines
 
 
 def _build_welcome_edit_prompt(chat_id: int, edit_type: str, app_context: AppContext | None) -> str:
     """Build a contextual prompt with current value for editing."""
     if not app_context or not app_context.config_service:
         return (
-            "Send the new welcome message.\n\nYou can use {name} for user's name.\n\nSend /cancel to cancel."
+            "Send the new welcome message.\n\n"
+            "You can use $$USER$$ for user's name and $$COLOR$$ to enable the emoji captcha.\n\n"
+            "Send /cancel to cancel."
             if edit_type == "msg"
             else "Send the button text.\n\nSend /cancel to cancel."
         )
 
     if edit_type == "msg":
-        current = _preview_text(app_context.config_service.get_welcome_message(chat_id), 1200)
+        current = _preview_html(app_context.config_service.get_welcome_message(chat_id), _WELCOME_PREVIEW_LIMIT)
         return (
             "Edit welcome message.\n"
             f"Current:\n{current}\n\n"
-            "You can use {name} for user's name.\n"
+            "You can use $$USER$$ for user's name and $$COLOR$$ to enable the emoji captcha "
+            "(the welcome button is replaced with colored squares).\n"
             "Send /cancel to cancel."
         )
 

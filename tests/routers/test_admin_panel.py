@@ -1,5 +1,6 @@
 """Tests for admin_panel.py router."""
 
+import html
 import json
 
 import pytest
@@ -26,6 +27,8 @@ from routers.admin_panel import (
     _inaccessible_chats,
     _chat_titles,
     _chat_owners,
+    _format_welcome_settings,
+    _build_welcome_edit_prompt,
 )
 from other.constants import BotValueTypes
 from tests.conftest import RouterTestMiddleware
@@ -232,6 +235,127 @@ class TestWelcomeKb:
         assert "Edit Button" in kb.inline_keyboard[0][1].text
         assert "Delete Welcome" in kb.inline_keyboard[1][0].text
         assert "<< Back" in kb.inline_keyboard[2][0].text
+
+
+class TestWelcomeSettingsDisplay:
+    def _set(self, router_app_context, chat_id=-100777, msg=None, btn=None):
+        if msg is not None:
+            router_app_context.config_service.set_welcome_message(chat_id, msg)
+        if btn is not None:
+            router_app_context.config_service.set_welcome_button(chat_id, btn)
+
+    def test_message_rendered_as_html_not_escaped(self, router_app_context):
+        """Stored HTML stays HTML so the preview matches what a new member sees."""
+        self._set(router_app_context, msg='Hi <a href="https://example.com">rules</a>', btn="Click")
+
+        lines = _format_welcome_settings(-100777, "T <chat>", router_app_context)
+        message_line = next(line for line in lines if line.startswith("Message:"))
+
+        assert '<a href="https://example.com">' in message_line
+        assert "&lt;a href" not in message_line
+        assert html.escape("T <chat>") in lines[0]
+
+    def test_long_message_not_cut_at_old_limit(self, router_app_context):
+        """Messages beyond the old 450-char cap are shown in full (up to the shared limit)."""
+        long_msg = "x" * 1000
+        self._set(router_app_context, msg=long_msg)
+
+        lines = _format_welcome_settings(-100777, "T", router_app_context)
+        message_line = next(line for line in lines if line.startswith("Message:"))
+
+        assert "x" * 1000 in message_line
+        assert "..." not in message_line
+
+    def test_button_not_shown_when_captcha_disabled(self, router_app_context):
+        self._set(router_app_context, msg="Hello!", btn="Click me")
+
+        lines = _format_welcome_settings(-100777, "T", router_app_context)
+
+        assert "Button: not shown (captcha disabled)" in lines
+        assert "Click me" not in "\n".join(lines)
+
+    def test_color_placeholder_warning_when_captcha_disabled(self, router_app_context):
+        self._set(router_app_context, msg="Press $$COLOR$$", btn="Click me")
+
+        lines = _format_welcome_settings(-100777, "T", router_app_context)
+
+        assert "$$COLOR$$ stays unreplaced" in "\n".join(lines)
+
+    def test_color_placeholder_switches_to_emoji_captcha(self, router_app_context):
+        """With captcha on and $$COLOR$$ in text the welcome button is not used."""
+        self._set(router_app_context, msg="Press $$COLOR$$", btn="Click me")
+        router_app_context.feature_flags.enable(-100777, "captcha")
+
+        lines = _format_welcome_settings(-100777, "T", router_app_context)
+
+        assert "Button: emoji captcha (colored squares)" in "\n".join(lines)
+        assert "Click me" not in "\n".join(lines)
+
+    def test_button_shown_when_captcha_enabled_without_color(self, router_app_context):
+        self._set(router_app_context, msg="Hello!", btn="Click me")
+        router_app_context.feature_flags.enable(-100777, "captcha")
+
+        lines = _format_welcome_settings(-100777, "T", router_app_context)
+
+        assert "Button: Click me" in lines
+
+    def test_selfmod_note_when_enabled(self, router_app_context):
+        self._set(router_app_context, msg="Hello!")
+        router_app_context.feature_flags.enable(-100777, "captcha")
+        router_app_context.feature_flags.enable(-100777, "selfmod")
+
+        lines = _format_welcome_settings(-100777, "T", router_app_context)
+
+        assert "selfmod is enabled — welcome message is not sent" in "\n".join(lines)
+
+    def test_truncation_keeps_valid_html(self, router_app_context):
+        """Truncating past the shared limit must not leave a partially cut tag."""
+        huge_msg = "y" * 3490 + '<a href="https://example.com">link</a>'
+        self._set(router_app_context, msg=huge_msg)
+
+        lines = _format_welcome_settings(-100777, "T", router_app_context)
+        message_line = next(line for line in lines if line.startswith("Message:"))
+
+        assert message_line.endswith("...")
+        assert "<a" not in message_line[3480:]
+
+
+class TestWelcomeEditPrompt:
+    def test_prompt_mentions_real_placeholders(self, router_app_context):
+        """Hint must match the placeholders the bot actually substitutes."""
+        router_app_context.config_service.set_welcome_message(-100777, "Hello $$USER$$")
+
+        prompt = _build_welcome_edit_prompt(-100777, "msg", router_app_context)
+
+        assert "$$USER$$" in prompt
+        assert "$$COLOR$$" in prompt
+        assert "{name}" not in prompt
+        assert "Hello $$USER$$" in prompt
+
+    def test_prompt_without_services_mentions_placeholders(self):
+        prompt = _build_welcome_edit_prompt(-100777, "msg", None)
+
+        assert "$$USER$$" in prompt
+        assert "{name}" not in prompt
+
+    def test_button_prompt_keeps_current_value(self, router_app_context):
+        router_app_context.config_service.set_welcome_button(-100777, "Click me")
+
+        prompt = _build_welcome_edit_prompt(-100777, "btn", router_app_context)
+
+        assert "Current: Click me" in prompt
+
+    def test_msg_prompt_matches_view_limit(self, router_app_context):
+        """Edit prompt and view share the same cap so both show the same text."""
+        long_msg = "z" * 1000
+        router_app_context.config_service.set_welcome_message(-100777, long_msg)
+
+        prompt = _build_welcome_edit_prompt(-100777, "msg", router_app_context)
+        view_lines = _format_welcome_settings(-100777, "T", router_app_context)
+        view_msg = next(line for line in view_lines if line.startswith("Message:"))
+
+        assert "z" * 1000 in prompt
+        assert prompt.split("Current:\n")[1].split("\n\n")[0] == view_msg[len("Message: ") :]
 
 
 # ============ Integration Tests: Command Handlers ============
@@ -838,6 +962,8 @@ async def test_cb_show_welcome_settings(mock_telegram, router_app_context):
     assert edit_msg is not None
     assert "Welcome Settings" in edit_msg["data"]["text"]
     assert "Hello {name}!" in edit_msg["data"]["text"]
+    # Captcha is off by default in the fake: the panel must not promise a button.
+    assert "Button: not shown (captcha disabled)" in edit_msg["data"]["text"]
 
 
 @pytest.mark.asyncio
