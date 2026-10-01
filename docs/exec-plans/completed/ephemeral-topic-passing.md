@@ -6,11 +6,11 @@
 - User: «проебали в прошлом заходе, надо передавать конечно. ГО и проверь ВСЕ вызовы чтоб где надо добавить передачу топика».
 
 ## План изменений
-1. [ ] `services/external_services.py` — `reply_ephemeral`: передавать `message_thread_id=message.message_thread_id` в `send_message` (эфемерная ветка).
-2. [ ] Аудит ВСЕХ вызовов отправок (routers/, services/, other/, middlewares/, start.py, scout-агент): разметка NEEDS_TOPIC / NO / AMBIGUOUS.
-3. [ ] Добавить передачу топика туда, где NEEDS_TOPIC (прямые send_message и хелперы).
-4. [ ] Обновить/добавить тесты: эфемерка в форуме несёт `message_thread_id`; личка — не несёт.
-5. [ ] Проверка: `uv run pytest` (затронутые файлы) + `uv run ruff check` / `ruff format --check`.
+1. [x] `services/external_services.py` — `reply_ephemeral`: передавать `message_thread_id=message.message_thread_id` в `send_message` (эфемерная ветка).
+2. [x] Аудит ВСЕХ вызовов отправок (routers/, services/, other/, middlewares/, start.py, scout-агент): разметка NEEDS_TOPIC / NO / AMBIGUOUS.
+3. [x] Добавить передачу топика туда, где NEEDS_TOPIC (прямые send_message и хелперы).
+4. [x] Обновить/добавить тесты: эфемерка в форуме несёт `message_thread_id`; личка — не несёт.
+5. [x] Проверка: `uv run pytest` (затронутые файлы) + `uv run ruff check` / `ruff format --check`.
 
 ## Риски и открытые вопросы
 - Часть чатов-констант (SpamGroup и т.п.) может быть форумом — определить по коду (если туда шлют без topic и это форум, ответ уедет в General).
