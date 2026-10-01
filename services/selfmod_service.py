@@ -44,6 +44,7 @@ class VoteState:
     target_user_id: int
     target_mention: str
     target_msg_id: Optional[int] = None  # for mute votes — the offending message
+    message_thread_id: Optional[int] = None  # forum topic the vote was started in
     yes_voters: list[int] = field(default_factory=list)
     no_voters: list[int] = field(default_factory=list)
     voter_mentions: dict[str, str] = field(default_factory=dict)  # str(user_id) -> mention
@@ -57,6 +58,7 @@ class VoteState:
             "target_user_id": self.target_user_id,
             "target_mention": self.target_mention,
             "target_msg_id": self.target_msg_id,
+            "message_thread_id": self.message_thread_id,
             "yes_voters": list(self.yes_voters),
             "no_voters": list(self.no_voters),
             "voter_mentions": dict(self.voter_mentions),
@@ -72,6 +74,7 @@ class VoteState:
             target_user_id=int(data["target_user_id"]),
             target_mention=data.get("target_mention", ""),
             target_msg_id=data.get("target_msg_id"),
+            message_thread_id=data.get("message_thread_id"),
             yes_voters=[int(u) for u in data.get("yes_voters", [])],
             no_voters=[int(u) for u in data.get("no_voters", [])],
             voter_mentions={str(k): str(v) for k, v in data.get("voter_mentions", {}).items()},
@@ -206,6 +209,7 @@ class SelfmodService:
         target_user_id: int,
         target_mention: str,
         target_msg_id: Optional[int] = None,
+        message_thread_id: Optional[int] = None,
     ) -> VoteState:
         await self._ensure_loaded(chat_id)
         state = VoteState(
@@ -215,6 +219,7 @@ class SelfmodService:
             target_user_id=target_user_id,
             target_mention=target_mention,
             target_msg_id=target_msg_id,
+            message_thread_id=message_thread_id,
             started_at=self._now_fn().isoformat(),
         )
         with self._lock:

@@ -94,10 +94,11 @@ class _StubBot:
 
 
 class _StubMessage:
-    def __init__(self, from_user):
+    def __init__(self, from_user, message_thread_id=None):
         self.from_user = from_user
         self.bot = _StubBot()
-        self.chat = types.Chat(id=-100123, type="supergroup")
+        self.chat = types.Chat(id=-100123, type="supergroup", is_forum=True)
+        self.message_thread_id = message_thread_id
         self.replies = []
 
     async def reply(self, text, parse_mode=None, reply_markup=None):
@@ -125,6 +126,28 @@ async def test_reply_ephemeral_falls_back_for_bot_sender():
 
     assert message.replies == ["Added"]
     assert message.bot.sent == []
+
+
+@pytest.mark.asyncio
+async def test_reply_ephemeral_passes_topic_in_forum():
+    from services.external_services import UtilsService
+
+    message = _StubMessage(types.User(id=777, is_bot=False, first_name="Admin"), message_thread_id=42)
+    await UtilsService().reply_ephemeral(message, "Added")
+
+    assert message.bot.sent[0]["message_thread_id"] == 42
+    assert message.bot.sent[0]["ephemeral_message_parameters"].receiver_user_id == 777
+
+
+@pytest.mark.asyncio
+async def test_reply_ephemeral_no_thread_id_outside_forum():
+    from services.external_services import UtilsService
+
+    message = _StubMessage(types.User(id=777, is_bot=False, first_name="User"))
+    await UtilsService().reply_ephemeral(message, "Added")
+
+    assert message.bot.sent[0]["message_thread_id"] is None
+    assert message.bot.sent[0]["ephemeral_message_parameters"].receiver_user_id == 777
 
 
 # ---------------------------------------------------------------------------

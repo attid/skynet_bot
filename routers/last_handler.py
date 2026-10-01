@@ -540,6 +540,7 @@ async def cmd_check_reply_only(message: Message, session: Any, bot: Bot, state: 
             msg_d = await bot.send_message(
                 chat_id=message.chat.id,
                 disable_web_page_preview=True,
+                message_thread_id=message.message_thread_id,
                 text=f"Сообщение от {sender_name} переслано в личку.\n"
                 '<a href="https://telegra.ph/rc-06-15-3">Подробнее о режиме тут</a>',
             )
@@ -548,6 +549,7 @@ async def cmd_check_reply_only(message: Message, session: Any, bot: Bot, state: 
             msg_d = await bot.send_message(
                 chat_id=message.chat.id,
                 disable_web_page_preview=True,
+                message_thread_id=message.message_thread_id,
                 text=f"Сообщение от {sender_name} удалено\n"
                 '<a href="https://telegra.ph/rc-06-15-3">Подробнее о режиме тут</a>',
             )
@@ -556,6 +558,7 @@ async def cmd_check_reply_only(message: Message, session: Any, bot: Bot, state: 
             msg_d = await bot.send_message(
                 chat_id=message.chat.id,
                 disable_web_page_preview=True,
+                message_thread_id=message.message_thread_id,
                 text=f"Сообщение от {sender_name} удалено. Личка в блокировке =(\n"
                 '<a href="https://telegra.ph/rc-06-15-3">Подробнее о режиме тут</a>',
             )

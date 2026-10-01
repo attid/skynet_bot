@@ -732,6 +732,7 @@ class UtilsService:
             text,
             parse_mode=parse_mode,
             reply_markup=reply_markup,
+            message_thread_id=message.message_thread_id,
             ephemeral_message_parameters=EphemeralMessageParameters(receiver_user_id=sender.id),
         )
 

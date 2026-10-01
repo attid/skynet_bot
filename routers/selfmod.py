@@ -127,7 +127,9 @@ async def _archive_and_delete_vote(bot: Bot, state: VoteState) -> None:
 # ----------------------------------------------------------------------
 
 
-async def begin_join_vote(bot: Bot, chat: Any, user: User, app_context: AppContext) -> None:
+async def begin_join_vote(
+    bot: Bot, chat: Any, user: User, app_context: AppContext, message_thread_id: int | None = None
+) -> None:
     """Restrict the new member and start a join vote in the chat."""
     if not app_context or not app_context.selfmod_service:
         raise ValueError("app_context with selfmod_service required")
@@ -144,6 +146,7 @@ async def begin_join_vote(bot: Bot, chat: Any, user: User, app_context: AppConte
         chat_id,
         f"{mention} wants to join. Vote below — any chat member can participate.",
         parse_mode="HTML",
+        message_thread_id=message_thread_id,
         disable_web_page_preview=True,
     )
     state = await selfmod_service.start_vote(
@@ -152,6 +155,7 @@ async def begin_join_vote(bot: Bot, chat: Any, user: User, app_context: AppConte
         vote_msg_id=msg.message_id,
         target_user_id=user.id,
         target_mention=mention,
+        message_thread_id=message_thread_id,
     )
     with suppress(TelegramBadRequest):
         await bot.edit_message_text(
@@ -171,6 +175,7 @@ async def begin_mute_vote(
     target_mention: str,
     target_msg_id: int,
     app_context: AppContext,
+    message_thread_id: int | None = None,
 ) -> None:
     if not app_context or not app_context.selfmod_service:
         raise ValueError("app_context with selfmod_service required")
@@ -181,6 +186,7 @@ async def begin_mute_vote(
         f"Mute vote against {target_mention} — react with the buttons below.",
         parse_mode="HTML",
         reply_to_message_id=target_msg_id,
+        message_thread_id=message_thread_id,
         disable_web_page_preview=True,
     )
     state = await selfmod_service.start_vote(
@@ -190,6 +196,7 @@ async def begin_mute_vote(
         target_user_id=target_user_id,
         target_mention=target_mention,
         target_msg_id=target_msg_id,
+        message_thread_id=message_thread_id,
     )
     with suppress(TelegramBadRequest):
         await bot.edit_message_text(
@@ -209,6 +216,7 @@ async def _begin_kick_vote(bot: Bot, chat: Any, parent: VoteState, app_context: 
         chat_id,
         f"Kick vote against {parent.target_mention} (3rd offense in 90 days):",
         parse_mode="HTML",
+        message_thread_id=parent.message_thread_id,
         disable_web_page_preview=True,
     )
     state = await selfmod_service.start_vote(
@@ -217,6 +225,7 @@ async def _begin_kick_vote(bot: Bot, chat: Any, parent: VoteState, app_context: 
         vote_msg_id=msg.message_id,
         target_user_id=parent.target_user_id,
         target_mention=parent.target_mention,
+        message_thread_id=parent.message_thread_id,
     )
     with suppress(TelegramBadRequest):
         await bot.edit_message_text(
@@ -446,6 +455,7 @@ async def selfmod_reaction(
         target_mention=target_mention,
         target_msg_id=message.message_id,
         app_context=app_context,
+        message_thread_id=ctx.get("thread_id"),
     )
     return True
 
