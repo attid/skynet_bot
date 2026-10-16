@@ -41,6 +41,8 @@ from other.loguru_tools import safe_catch_async
 
 # https://docs.gspread.org/en/latest/
 
+MONITORING_GRID_EXPANSION_ROWS = 100
+
 
 def parse_sheet_number(value: object) -> Optional[float]:
     """Parse a numeric value from a Google Sheets cell."""
@@ -236,6 +238,17 @@ async def update_main_report_additional(session: AsyncSession):
     column_a_values = await wks_monitoring.col_values(1)
     # Находим первую пустую ячейку
     last_row = len(column_a_values) + 1
+
+    # The Sheets API does not auto-expand the grid for values.update requests,
+    # so reserve extra rows when the next write would exceed the grid limit.
+    if last_row > wks_monitoring.row_count:
+        rows_to_add = max(MONITORING_GRID_EXPANSION_ROWS, last_row - wks_monitoring.row_count)
+        logger.info(
+            f"Expanding MONITORING sheet by {rows_to_add} rows "
+            f"(current_rows: {wks_monitoring.row_count}, target_row: {last_row}, "
+            f"new_rows: {wks_monitoring.row_count + rows_to_add})"
+        )
+        await wks_monitoring.add_rows(rows_to_add)
 
     # Вставка текущей даты в найденную ячейку
     current_date = datetime.now().strftime("%d.%m.%Y")

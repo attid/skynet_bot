@@ -1,5 +1,10 @@
 import inspect
 from contextlib import suppress
+from types import SimpleNamespace
+from typing import Any, cast
+
+from gspread.exceptions import APIError, IncorrectCellLabel
+from gspread.utils import a1_to_rowcol
 
 from other.aiogram_tools import add_text, answer_text_file, multi_answer, multi_reply
 from services.ban_stats_service import BanStatsService
@@ -801,18 +806,77 @@ class FakePollService:
 
 
 class FakeGSpreadWorksheet:
-    """Fake worksheet for gspread tests."""
+    """Fake worksheet for gspread tests.
 
-    def __init__(self, data=None):
+    ``row_count`` is kept in sync with the seeded data, ``added_rows`` stores the
+    values passed to :meth:`add_rows`, and ``_updated_ranges`` stores
+    ``(range_name, values, kwargs)`` tuples for every :meth:`update` call.
+    """
+
+    def __init__(self, data=None, row_count=1000):
         self._data = data or []
         self._updated_ranges = []
+        self.row_count = max(row_count, len(self._data))
+        self.added_rows = []
 
     async def get_all_values(self):
         return self._data
 
-    async def update(self, range_name, values):
-        self._updated_ranges.append((range_name, values))
+    async def acell(self, label):
+        label = label.split("!")[-1]
+        try:
+            row, column = a1_to_rowcol(label)
+        except IncorrectCellLabel:
+            return SimpleNamespace(value=None)
+        if row < 1 or column < 1:
+            return SimpleNamespace(value=None)
+        try:
+            value = self._data[row - 1][column - 1]
+        except (IndexError, TypeError):
+            value = None
+        return SimpleNamespace(value=value)
+
+    async def col_values(self, col):
+        if col < 1:
+            return []
+        last_filled = 0
+        for index, row in enumerate(self._data, start=1):
+            if len(row) >= col and row[col - 1] not in ("", None):
+                last_filled = index
+        return [
+            row[col - 1] if len(row) >= col and row[col - 1] is not None else "" for row in self._data[:last_filled]
+        ]
+
+    async def update(self, values, range_name=None, **kwargs):
+        if isinstance(range_name, (list, tuple)) and isinstance(values, str):
+            range_name, values = values, range_name
+        range_name = range_name or "A1"
+
+        start_label, _, end_label = range_name.split("!")[-1].partition(":")
+        start_row = None
+        end_row = None
+        try:
+            start_row, _ = a1_to_rowcol(start_label)
+        except IncorrectCellLabel:
+            pass
+        try:
+            end_row = a1_to_rowcol(end_label)[0] if end_label else None
+        except IncorrectCellLabel:
+            pass
+        if start_row is not None:
+            end_row = max(end_row or start_row, start_row + len(values) - 1)
+        if end_row is not None and end_row > self.row_count:
+            response = SimpleNamespace(
+                text=f"Range {range_name} exceeds grid limits (max rows: {self.row_count})",
+                json=lambda: {},
+            )
+            raise APIError(cast(Any, response))
+        self._updated_ranges.append((range_name, values, kwargs))
         return True
+
+    async def add_rows(self, rows):
+        self.added_rows.append(rows)
+        self.row_count += rows
 
 
 class FakeGSpreadSpreadsheet:
