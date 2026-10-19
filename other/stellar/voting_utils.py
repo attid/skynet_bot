@@ -3,12 +3,13 @@
 
 import math
 from copy import deepcopy
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from loguru import logger
 from stellar_sdk import Account, TransactionBuilder
 
-from .sdk_utils import load_account_async, get_network_passphrase, get_server, get_server_async
+from .sdk_utils import load_account_async, get_network_passphrase, get_server_async
 from other.grist_tools import MTLGrist, grist_manager
 from other.web_tools import http_session_manager
 from other.mytypes import MyShareHolder
@@ -16,6 +17,24 @@ from other.mytypes import MyShareHolder
 from .constants import BASE_FEE, MTLAddresses, MTLAssets
 from .balance_utils import stellar_get_account, stellar_get_all_mtl_holders, stellar_get_holders
 from .xdr_utils import decode_data_value
+
+# Upper bound for operations inside a single vote transaction.
+MAX_VOTE_OPERATIONS = 80
+
+
+@dataclass
+class VoteXdrResult:
+    """Outcome of building vote-update XDR.
+
+    Attributes:
+        xdr: transaction XDR or ``None`` when nothing had to be changed.
+        updated: accounts that got at least one operation.
+        skipped: accounts that were already in the desired state.
+    """
+
+    xdr: str | None = None
+    updated: list[str] = field(default_factory=list)
+    skipped: list[str] = field(default_factory=list)
 
 
 async def cmd_get_blacklist() -> dict:
@@ -118,48 +137,64 @@ def apply_mtl_delegations(
             break
 
 
-async def cmd_get_new_vote_all_mtl(public_key: str, remove_master: bool = False) -> list:
+async def cmd_get_new_vote_all_mtl(public_key: str, remove_master: bool = False) -> "VoteXdrResult":
     """
     Generate voting XDR transactions for MTL accounts.
 
     If public_key is a full Stellar address (>10 chars), generates XDR for that single account.
     Otherwise, generates XDR for all multisp accounts from Grist.
 
+    Accounts that already have the desired signers/thresholds/master weight are
+    skipped: no operations are emitted for them (previously every account got an
+    empty SetOptions, which asked the multisig to sign a no-op).
+
     Args:
         public_key: Stellar public key or short identifier
         remove_master: Whether to remove master key weight
 
     Returns:
-        List of XDR transaction strings
+        VoteXdrResult with the XDR (None when nothing changed) and the account lists
     """
+    vote_list = await cmd_gen_mtl_vote_list()
     if len(public_key) > 10:
-        vote_list = await cmd_gen_mtl_vote_list()
-        result = [gen_vote_xdr(public_key, vote_list, remove_master=remove_master, source=public_key)]
-    else:
-        vote_list = await cmd_gen_mtl_vote_list()
-        accounts = await grist_manager.load_table_data(
-            MTLGrist.EURMTL_accounts, filter_dict={"signers_type": ["multisp"]}
-        )
+        xdr = await gen_vote_xdr(public_key, vote_list, remove_master=remove_master, source=public_key)
+        if xdr:
+            return VoteXdrResult(xdr=xdr, updated=[public_key])
+        return VoteXdrResult(xdr=None, skipped=[public_key])
 
-        result = []
-        source_account = await load_account_async(MTLAddresses.public_issuer)
-        transaction = TransactionBuilder(
-            source_account=source_account, network_passphrase=get_network_passphrase(), base_fee=BASE_FEE
-        )
-        sequence = transaction.source_account.sequence
-        transaction.set_timeout(60 * 60 * 24 * 7)
-        xdr = None
-        for account in accounts:
-            account_id = account["account_id"]
-            vote_list_copy = deepcopy(vote_list)
-            # return sequence because every build inc number
-            transaction.source_account.sequence = sequence
-            if len(transaction.operations) < 80:
-                xdr = gen_vote_xdr(account_id, vote_list_copy, transaction, source=account_id, remove_master=True)
+    accounts = await grist_manager.load_table_data(MTLGrist.EURMTL_accounts, filter_dict={"signers_type": ["multisp"]})
 
-        result.append(xdr)
+    updated: list[str] = []
+    skipped: list[str] = []
+    xdr: str | None = None
+    source_account = await load_account_async(MTLAddresses.public_issuer)
+    transaction = TransactionBuilder(
+        source_account=source_account, network_passphrase=get_network_passphrase(), base_fee=BASE_FEE
+    )
+    sequence = transaction.source_account.sequence
+    transaction.set_timeout(60 * 60 * 24 * 7)
+    for account in accounts:
+        account_id = account["account_id"]
+        if len(transaction.operations) >= MAX_VOTE_OPERATIONS:
+            logger.warning(
+                "vote xdr: operation limit {} reached, {} accounts left out",
+                MAX_VOTE_OPERATIONS,
+                len(accounts) - len(updated) - len(skipped),
+            )
+            skipped.extend(row["account_id"] for row in accounts[len(updated) + len(skipped) :])
+            break
+        vote_list_copy = deepcopy(vote_list)
+        # return sequence because every build inc number
+        transaction.source_account.sequence = sequence
+        account_xdr = await gen_vote_xdr(account_id, vote_list_copy, transaction, source=account_id, remove_master=True)
+        if account_xdr:
+            updated.append(account_id)
+            xdr = account_xdr
+        else:
+            skipped.append(account_id)
+            logger.debug("vote xdr: {} already up to date, skipped", account_id)
 
-    return result
+    return VoteXdrResult(xdr=xdr, updated=updated, skipped=skipped)
 
 
 def is_vote_distribution_within_limit(weights: list[int], max_share: float = 0.40) -> bool:
@@ -442,7 +477,7 @@ async def cmd_gen_fin_vote_list(account_id: str = MTLAddresses.public_fin) -> li
     return final_list
 
 
-def gen_vote_xdr(
+async def gen_vote_xdr(
     public_key: str,
     vote_list: list[MyShareHolder],
     transaction: TransactionBuilder = None,
@@ -450,12 +485,14 @@ def gen_vote_xdr(
     remove_master: bool = False,
     max_count: int = 20,
     threshold_style: int = 0,
-) -> str:
+) -> str | None:
     """
     Create SetOptions XDR with signers for voting.
 
     Updates the account's signers based on calculated voting weights and
-    sets appropriate thresholds.
+    sets appropriate thresholds. Only real changes produce operations: signer
+    weights that already match, thresholds that are already correct and a
+    master weight that is already 0 do not add anything.
 
     Args:
         public_key: Account to update signers for
@@ -467,13 +504,18 @@ def gen_vote_xdr(
         threshold_style: 0 for 50%+1 threshold, 1 for 2/3 threshold
 
     Returns:
-        XDR transaction string
+        XDR transaction string, or ``None`` when the account needs no changes.
     """
-    # Find out who is in signers
-    server = get_server()
-    source_account = server.load_account(public_key)
+    # Load signers, thresholds and sequence without blocking the event loop
+    source_account = await load_account_async(public_key)
 
     sg = source_account.load_ed25519_public_key_signers()
+    current_weights = {s.account_id: s.weight for s in sg}
+    current_thresholds = (
+        int(source_account.thresholds.low_threshold),
+        int(source_account.thresholds.med_threshold),
+        int(source_account.thresholds.high_threshold),
+    )
 
     for s in sg:
         was_found = False
@@ -506,19 +548,20 @@ def gen_vote_xdr(
 
     vote_list = tmp_list
 
-    server = get_server()
-    source_account = server.load_account(public_key)
-    root_account = Account(public_key, sequence=source_account.sequence)
     if transaction is None:
+        root_account = Account(public_key, sequence=source_account.sequence)
         transaction = TransactionBuilder(
             source_account=root_account, network_passphrase=get_network_passphrase(), base_fee=BASE_FEE
         )
         transaction.set_timeout(60 * 60 * 24 * 7)
+
+    changed = False
     threshold = 0
 
     for arr in vote_list:
         if int(arr.calculated_votes) != int(arr.votes):
             transaction.append_ed25519_public_key_signer(arr.account_id, int(arr.calculated_votes), source=source)
+            changed = True
         threshold += int(arr.calculated_votes)
 
     if threshold_style == 1:
@@ -526,19 +569,24 @@ def gen_vote_xdr(
     else:
         threshold = threshold // 2 + 1
 
-    if remove_master:
-        transaction.append_set_options_op(
-            low_threshold=threshold, med_threshold=threshold, high_threshold=threshold, source=source, master_weight=0
-        )
-    else:
-        transaction.append_set_options_op(
-            low_threshold=threshold, med_threshold=threshold, high_threshold=threshold, source=source
-        )
+    thresholds_changed = (threshold, threshold, threshold) != current_thresholds
+    master_needs_reset = remove_master and current_weights.get(public_key, 0) != 0
 
-    transaction = transaction.build()
-    xdr = transaction.to_xdr()
+    if thresholds_changed or master_needs_reset:
+        transaction.append_set_options_op(
+            low_threshold=threshold,
+            med_threshold=threshold,
+            high_threshold=threshold,
+            source=source,
+            master_weight=0 if master_needs_reset else None,
+        )
+        changed = True
 
-    return xdr
+    if not changed:
+        logger.debug("gen_vote_xdr: no changes for {}, nothing to sign", public_key)
+        return None
+
+    return transaction.build().to_xdr()
 
 
 async def get_mtlap_votes() -> dict:

@@ -136,6 +136,7 @@ from .xdr_utils import (
 
 # Voting and governance
 from .voting_utils import (
+    VoteXdrResult,
     cmd_get_new_vote_all_mtl,
     get_mtlap_votes,
     cmd_gen_mtl_vote_list,
@@ -247,6 +248,7 @@ __all__ = [
     "stellar_get_transaction_builder",
     "decode_data_value",
     # Voting and governance
+    "VoteXdrResult",
     "cmd_get_new_vote_all_mtl",
     "get_mtlap_votes",
     "cmd_gen_mtl_vote_list",

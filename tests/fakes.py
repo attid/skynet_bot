@@ -7,6 +7,7 @@ from gspread.exceptions import APIError, IncorrectCellLabel
 from gspread.utils import a1_to_rowcol
 
 from other.aiogram_tools import add_text, answer_text_file, multi_answer, multi_reply
+from other.stellar import VoteXdrResult
 from services.ban_stats_service import BanStatsService
 from services.bot_state_service import BotStateService
 from services.channel_link_service import ChannelLinkService
@@ -965,7 +966,11 @@ class FakeStellarService:
         self.calc_usdm_divs = FakeAsyncMethod(return_value=[("addr1", 10)])
         self.calc_usdm_daily = FakeAsyncMethod(return_value=[("addr1", 10)])
         self.calc_usdm_usdm_divs = FakeAsyncMethod(return_value=[["GCLQ...", 1000.0, 5.97, 5.97, 0]])
-        self.get_new_vote_all_mtl = FakeAsyncMethod(return_value=["vote_xdr_here"])
+        self.get_new_vote_all_mtl = FakeAsyncMethod(
+            return_value=VoteXdrResult(
+                xdr="vote_xdr_here", updated=["GACKTN5DAZGWXRWB2WLM6OPBDHAMT6SJNGLJZPQMEZBUR4JUGBX2UK7V"]
+            )
+        )
         self.get_btcmtl_xdr = FakeAsyncMethod(return_value="btcmtl_xdr")
         self.get_damircoin_xdr = FakeAsyncMethod(return_value="damircoin_xdr")
         self.get_agora_xdr = FakeAsyncMethod(return_value="agora_xdr")

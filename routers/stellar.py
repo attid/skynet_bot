@@ -523,6 +523,15 @@ async def cmd_do_usdm_usdm_div_test(message: Message, session: AsyncSession, app
     await message.answer(f"current balance {calc[0][1]}\npay from {test_sum} will be {calc[0][2]}")
 
 
+def _vote_xdr_summary(result: Any) -> str:
+    """Describe what the vote XDR builder actually changed."""
+    updated = getattr(result, "updated", []) or []
+    skipped = getattr(result, "skipped", []) or []
+    if not updated:
+        return f"Изменений нет: все {len(skipped)} аккаунтов уже в нужном состоянии."
+    return f"Обновлено аккаунтов: {len(updated)}, без изменений: {len(skipped)}."
+
+
 @update_command_info("/get_vote_fund_xdr", "сделать транзакцию на обновление голосов фонда")
 @router.message(Command(commands=["get_vote_fund_xdr"]))
 async def cmd_get_vote_fund_xdr(message: Message, app_context=None):
@@ -531,20 +540,27 @@ async def cmd_get_vote_fund_xdr(message: Message, app_context=None):
     ctx = cast(Any, app_context)
     parts = (message.text or "").split()
     if len(parts) > 1:
-        arr2 = await ctx.stellar_service.get_new_vote_all_mtl(parts[1])
+        result = await ctx.stellar_service.get_new_vote_all_mtl(parts[1])
+        await _send_vote_xdr(message, ctx, result)
+        return
 
-        if len(arr2[0]) > 4000:
-            await ctx.utils_service.answer_text_file(message, arr2[0], "vote_fund_xdr.txt")
-        else:
-            await message.answer(arr2[0])
+    await message.answer("Делаю транзакции подождите несколько секунд")
+    result = await ctx.stellar_service.get_new_vote_all_mtl("")
+    await _send_vote_xdr(message, ctx, result)
+
+
+async def _send_vote_xdr(message: Message, ctx: Any, result: Any) -> None:
+    """Send the vote XDR (as text or file) plus a short summary of the changes."""
+    summary = _vote_xdr_summary(result)
+    xdr = getattr(result, "xdr", None)
+    if not xdr:
+        await message.answer(summary)
+        return
+    if len(xdr) > 4000:
+        await ctx.utils_service.answer_text_file(message, xdr, "vote_fund_xdr.txt")
     else:
-        await message.answer("Делаю транзакции подождите несколько секунд")
-        arr2 = await ctx.stellar_service.get_new_vote_all_mtl("")
-        await message.answer("for FUND")
-        if len(arr2[0]) > 4000:
-            await ctx.utils_service.answer_text_file(message, arr2[0], "vote_fund_xdr.txt")
-        else:
-            await ctx.utils_service.multi_answer(message, arr2[0])
+        await message.answer(xdr)
+    await message.answer(summary)
 
 
 @update_command_info(

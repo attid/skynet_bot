@@ -6,6 +6,14 @@ from routers.stellar import router as stellar_router
 from tests.conftest import RouterTestMiddleware
 from tests.fakes import FakeWebResponse
 from other.constants import MTLChats
+from other.stellar import VoteXdrResult
+
+
+def _vote_result(xdr, updated=None, skipped=None):
+    """Build a VoteXdrResult for /get_vote_fund_xdr tests."""
+    return VoteXdrResult(
+        xdr=xdr, updated=updated or ["GACKTN5DAZGWXRWB2WLM6OPBDHAMT6SJNGLJZPQMEZBUR4JUGBX2UK7V"], skipped=skipped or []
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -1158,7 +1166,7 @@ async def test_get_vote_fund_xdr_with_arg(mock_telegram, router_app_context):
     dp.message.middleware(RouterTestMiddleware(router_app_context))
     dp.include_router(stellar_router)
 
-    router_app_context.stellar_service.get_new_vote_all_mtl.return_value = ["vote_xdr_123"]
+    router_app_context.stellar_service.get_new_vote_all_mtl.return_value = _vote_result("vote_xdr_123")
 
     update = types.Update(
         update_id=32,
@@ -1180,13 +1188,45 @@ async def test_get_vote_fund_xdr_with_arg(mock_telegram, router_app_context):
 
 
 @pytest.mark.asyncio
+async def test_get_vote_fund_xdr_nothing_to_change(mock_telegram, router_app_context):
+    """Without real changes the bot must not send an XDR asking for useless signatures."""
+    dp = router_app_context.dispatcher
+    dp.message.middleware(RouterTestMiddleware(router_app_context))
+    dp.include_router(stellar_router)
+
+    router_app_context.stellar_service.get_new_vote_all_mtl.return_value = VoteXdrResult(
+        xdr=None,
+        updated=[],
+        skipped=["GBSCMGJCE4DLQ6TYRNUMXUZZUXGZBM4BXVZUIHBBL5CSRRW2GWEHUADM"],
+    )
+
+    update = types.Update(
+        update_id=36,
+        message=types.Message(
+            message_id=38,
+            date=datetime.datetime.now(),
+            chat=types.Chat(id=123, type="supergroup", title="Group"),
+            from_user=types.User(id=999, is_bot=False, first_name="User", username="user"),
+            text="/get_vote_fund_xdr",
+        ),
+    )
+
+    await dp.feed_update(bot=router_app_context.bot, update=update)
+
+    requests = mock_telegram.get_requests()
+    texts = [r["data"]["text"] for r in requests if r["method"] == "sendMessage"]
+    assert any("Изменений нет" in t for t in texts)
+    assert not any(r["method"] == "sendDocument" for r in requests)
+
+
+@pytest.mark.asyncio
 async def test_get_vote_fund_xdr_no_arg(mock_telegram, router_app_context):
     """Test /get_vote_fund_xdr without argument"""
     dp = router_app_context.dispatcher
     dp.message.middleware(RouterTestMiddleware(router_app_context))
     dp.include_router(stellar_router)
 
-    router_app_context.stellar_service.get_new_vote_all_mtl.return_value = ["vote_xdr_for_fund"]
+    router_app_context.stellar_service.get_new_vote_all_mtl.return_value = _vote_result("vote_xdr_for_fund")
 
     update = types.Update(
         update_id=33,
@@ -1791,7 +1831,7 @@ async def test_get_vote_fund_xdr_large_xdr(mock_telegram, router_app_context):
 
     # Create a large XDR string (> 4000 chars)
     large_xdr = "A" * 5000
-    router_app_context.stellar_service.get_new_vote_all_mtl.return_value = [large_xdr]
+    router_app_context.stellar_service.get_new_vote_all_mtl.return_value = _vote_result(large_xdr)
 
     update = types.Update(
         update_id=53,
@@ -2152,7 +2192,7 @@ async def test_get_vote_fund_xdr_short_xdr_no_arg(mock_telegram, router_app_cont
 
     # Short XDR (< 4000 chars) with no argument
     short_xdr = "A" * 100
-    router_app_context.stellar_service.get_new_vote_all_mtl.return_value = [short_xdr]
+    router_app_context.stellar_service.get_new_vote_all_mtl.return_value = _vote_result(short_xdr)
 
     update = types.Update(
         update_id=62,
