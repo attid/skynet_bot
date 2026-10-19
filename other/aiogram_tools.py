@@ -308,11 +308,24 @@ def extract_url_from_reply_markup(
 PLAIN_MESSAGE_LIMIT = 4000
 RICH_MESSAGE_LIMIT = 16000
 
+_PRE_BLOCK_RE = re.compile(r"(<pre>.*?</pre>|<code>.*?</code>)", re.DOTALL)
+
+
+def html_for_rich_message(text: str) -> str:
+    """Convert plain line breaks into explicit ``<br>`` for rich messages.
+
+    Rich messages are parsed as HTML, where a newline is just whitespace — so
+    the usual ``\n`` separated answer would collapse into one paragraph. Fragments
+    inside ``<pre>``/``<code>`` keep their newlines as is.
+    """
+    parts = _PRE_BLOCK_RE.split(text)
+    return "".join(part if index % 2 else part.replace("\n", "<br>") for index, part in enumerate(parts))
+
 
 def split_html(text: str, limit: int) -> list[str]:
     """Split HTML text into chunks of at most ``limit`` characters.
 
-    Prefers splitting on a newline so tags are not cut in the middle.
+    Splits on newlines so tags are never cut in the middle.
     """
     chunks: list[str] = []
     rest = text
@@ -320,8 +333,10 @@ def split_html(text: str, limit: int) -> list[str]:
         cut = rest.rfind("\n", 0, limit)
         if cut <= 0:
             cut = limit
+        else:
+            cut += 1  # keep the newline so no characters are lost on re-joining
         chunks.append(rest[:cut])
-        rest = rest[cut:].lstrip("\n")
+        rest = rest[cut:]
     if rest:
         chunks.append(rest)
     return chunks
@@ -340,17 +355,15 @@ async def multi_reply(message: Message, text: str):
         await message.reply(text)
         return
 
-    sent = 0
-    while sent < len(text):
-        chunk = text[sent : sent + RICH_MESSAGE_LIMIT]
+    chunks = split_html(text, RICH_MESSAGE_LIMIT)
+    for index, chunk in enumerate(chunks):
         try:
-            await message.reply_rich(InputRichMessage(html=chunk))
+            await message.reply_rich(InputRichMessage(html=html_for_rich_message(chunk)))
         except Exception:
             logger.warning("rich reply failed (len=%s), falling back to plain replies", len(chunk), exc_info=True)
-            for plain_chunk in split_html(text[sent:], PLAIN_MESSAGE_LIMIT):
+            for plain_chunk in split_html("\n".join(chunks[index:]), PLAIN_MESSAGE_LIMIT):
                 await message.reply(plain_chunk)
             return
-        sent += RICH_MESSAGE_LIMIT
 
 
 async def multi_answer(message: Message, text: str):
