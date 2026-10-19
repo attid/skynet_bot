@@ -968,7 +968,7 @@ class FakeStellarService:
         self.calc_usdm_usdm_divs = FakeAsyncMethod(return_value=[["GCLQ...", 1000.0, 5.97, 5.97, 0]])
         self.get_new_vote_all_mtl = FakeAsyncMethod(
             return_value=VoteXdrResult(
-                xdr="vote_xdr_here", updated=["GACKTN5DAZGWXRWB2WLM6OPBDHAMT6SJNGLJZPQMEZBUR4JUGBX2UK7V"]
+                xdrs=["vote_xdr_here"], updated=["GACKTN5DAZGWXRWB2WLM6OPBDHAMT6SJNGLJZPQMEZBUR4JUGBX2UK7V"]
             )
         )
         self.get_btcmtl_xdr = FakeAsyncMethod(return_value="btcmtl_xdr")

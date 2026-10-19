@@ -9,10 +9,12 @@ from other.constants import MTLChats
 from other.stellar import VoteXdrResult
 
 
-def _vote_result(xdr, updated=None, skipped=None):
+def _vote_result(*xdrs, updated=None, skipped=None):
     """Build a VoteXdrResult for /get_vote_fund_xdr tests."""
     return VoteXdrResult(
-        xdr=xdr, updated=updated or ["GACKTN5DAZGWXRWB2WLM6OPBDHAMT6SJNGLJZPQMEZBUR4JUGBX2UK7V"], skipped=skipped or []
+        xdrs=list(xdrs),
+        updated=updated or ["GACKTN5DAZGWXRWB2WLM6OPBDHAMT6SJNGLJZPQMEZBUR4JUGBX2UK7V"],
+        skipped=skipped or [],
     )
 
 
@@ -1188,6 +1190,41 @@ async def test_get_vote_fund_xdr_with_arg(mock_telegram, router_app_context):
 
 
 @pytest.mark.asyncio
+async def test_get_vote_fund_xdr_multiple_transactions(mock_telegram, router_app_context):
+    """Several transactions are sent as one file, one XDR per line."""
+    dp = router_app_context.dispatcher
+    dp.message.middleware(RouterTestMiddleware(router_app_context))
+    dp.include_router(stellar_router)
+
+    router_app_context.stellar_service.get_new_vote_all_mtl.return_value = VoteXdrResult(
+        xdrs=["AAAA-first", "AAAA-second"],
+        updated=[
+            "GBSCMGJCE4DLQ6TYRNUMXUZZUXGZBM4BXVZUIHBBL5CSRRW2GWEHUADM",
+            "GCOJHUKGHI6IATN7AIEK4PSNBPXIAIZ7KB2AWTTUCNIAYVPUB2DMCITY",
+        ],
+        skipped=[],
+    )
+
+    update = types.Update(
+        update_id=37,
+        message=types.Message(
+            message_id=39,
+            date=datetime.datetime.now(),
+            chat=types.Chat(id=123, type="supergroup", title="Group"),
+            from_user=types.User(id=999, is_bot=False, first_name="User", username="user"),
+            text="/get_vote_fund_xdr",
+        ),
+    )
+
+    await dp.feed_update(bot=router_app_context.bot, update=update)
+
+    requests = mock_telegram.get_requests()
+    assert any(r["method"] == "sendDocument" for r in requests)
+    texts = [r["data"]["text"] for r in requests if r["method"] == "sendMessage"]
+    assert any("транзакций: 2" in t for t in texts)
+
+
+@pytest.mark.asyncio
 async def test_get_vote_fund_xdr_nothing_to_change(mock_telegram, router_app_context):
     """Without real changes the bot must not send an XDR asking for useless signatures."""
     dp = router_app_context.dispatcher
@@ -1195,7 +1232,7 @@ async def test_get_vote_fund_xdr_nothing_to_change(mock_telegram, router_app_con
     dp.include_router(stellar_router)
 
     router_app_context.stellar_service.get_new_vote_all_mtl.return_value = VoteXdrResult(
-        xdr=None,
+        xdrs=[],
         updated=[],
         skipped=["GBSCMGJCE4DLQ6TYRNUMXUZZUXGZBM4BXVZUIHBBL5CSRRW2GWEHUADM"],
     )

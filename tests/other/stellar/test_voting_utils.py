@@ -407,3 +407,99 @@ async def test_cmd_get_new_vote_all_mtl_returns_none_when_nothing_changed(monkey
     assert result.xdr is None
     assert result.updated == []
     assert result.skipped == [account]
+
+
+# ============================================================================
+# Packing accounts into transactions of at most 100 operations
+# ============================================================================
+
+
+# Valid StrKeys: the SDK rejects anything that is not a real public key.
+REAL_ADDRESSES = [
+    "GBSCMGJCE4DLQ6TYRNUMXUZZUXGZBM4BXVZUIHBBL5CSRRW2GWEHUADM",
+    ACC,
+    "GDASYWP6F44TVNJKZKQ2UEVZOKTENCJFTWVMP6UC7JBZGY4ZNB6YAVD4",
+    "GCOJHUKGHI6IATN7AIEK4PSNBPXIAIZ7KB2AWTTUCNIAYVPUB2DMCITY",
+    "GAEZHXMFRW2MWLWCXSBNZNUSE6SN3ODZDDOMPFH3JPMJXN4DKBPMDEFI",
+    "GAQ5ERJVI6IW5UVNPEVXUUVMXH3GCDHJ4BJAXMAAKPR5VBWWAUOMABIZ",
+    VOTE_KEY,
+    OTHER_KEY,
+]
+
+
+def make_plan(account_id: str, signer_count: int, with_thresholds: bool = True, sequence: int = 10):
+    return voting_utils.AccountVoteOps(
+        account_id=account_id,
+        sequence=sequence,
+        signer_changes=[(REAL_ADDRESSES[index % len(REAL_ADDRESSES)], index + 1) for index in range(signer_count)],
+        thresholds=6 if with_thresholds else None,
+        master_weight=0 if with_thresholds else None,
+    )
+
+
+def test_pack_account_plans_respects_limit():
+    plans = [make_plan(REAL_ADDRESSES[index % len(REAL_ADDRESSES)], signer_count=20) for index in range(10)]
+
+    batches = voting_utils.pack_account_plans(plans, max_ops=100)
+
+    assert len(batches) == 3
+    for batch in batches:
+        assert sum(plan.op_count for plan in batch) <= 100
+    # every account appears exactly once and never across two transactions
+    flat = [plan.account_id for batch in batches for plan in batch]
+    assert flat == [plan.account_id for plan in plans]
+
+
+def test_pack_account_plans_keeps_single_account_atomic():
+    plans = [make_plan(ACC, signer_count=60), make_plan(OTHER_KEY, signer_count=60)]
+
+    batches = voting_utils.pack_account_plans(plans, max_ops=100)
+
+    assert [[plan.account_id for plan in batch] for batch in batches] == [[ACC], [OTHER_KEY]]
+
+
+def test_pack_account_plans_rejects_oversized_account():
+    with pytest.raises(ValueError, match="does not fit into one transaction"):
+        voting_utils.pack_account_plans([make_plan(ACC, signer_count=100)], max_ops=100)
+
+
+def test_build_vote_transactions_uses_consecutive_sequences():
+    issuer = "GBSCMGJCE4DLQ6TYRNUMXUZZUXGZBM4BXVZUIHBBL5CSRRW2GWEHUADM"
+    source_account = Account(issuer, sequence=500)
+    plans = [
+        make_plan(ACC, signer_count=60),
+        make_plan(OTHER_KEY, signer_count=60),
+        make_plan(VOTE_KEY, signer_count=1),
+    ]
+
+    xdrs = voting_utils.build_vote_transactions(plans, source_account)
+
+    assert len(xdrs) == 2
+    sequences = [
+        int(
+            TransactionEnvelope.from_xdr(xdr, network_passphrase=Network.PUBLIC_NETWORK_PASSPHRASE).transaction.sequence
+        )
+        for xdr in xdrs
+    ]
+    assert sequences == [501, 502]
+
+
+def test_build_vote_transactions_splits_by_operation_count():
+    issuer = "GBSCMGJCE4DLQ6TYRNUMXUZZUXGZBM4BXVZUIHBBL5CSRRW2GWEHUADM"
+    source_account = Account(issuer, sequence=1)
+    # 4 accounts x 21 ops = 84 -> one transaction; 5th pushes it over 100
+    plans = [make_plan(REAL_ADDRESSES[index], signer_count=20) for index in range(5)]
+
+    xdrs = voting_utils.build_vote_transactions(plans, source_account)
+
+    assert len(xdrs) == 2
+    counts = [
+        len(
+            TransactionEnvelope.from_xdr(
+                xdr, network_passphrase=Network.PUBLIC_NETWORK_PASSPHRASE
+            ).transaction.operations
+        )
+        for xdr in xdrs
+    ]
+    assert counts == [84, 21]
+    assert max(counts) <= voting_utils.MAX_OPS_PER_TRANSACTION

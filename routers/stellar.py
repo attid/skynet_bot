@@ -527,8 +527,14 @@ def _vote_xdr_summary(result: Any) -> str:
     """Describe what the vote XDR builder actually changed."""
     updated = getattr(result, "updated", []) or []
     skipped = getattr(result, "skipped", []) or []
+    transactions = getattr(result, "xdrs", []) or []
     if not updated:
         return f"Изменений нет: все {len(skipped)} аккаунтов уже в нужном состоянии."
+    if len(transactions) > 1:
+        return (
+            f"Обновлено аккаунтов: {len(updated)}, транзакций: {len(transactions)}"
+            f" (подписывать по порядку, sequence уже +1), без изменений: {len(skipped)}."
+        )
     return f"Обновлено аккаунтов: {len(updated)}, без изменений: {len(skipped)}."
 
 
@@ -552,14 +558,16 @@ async def cmd_get_vote_fund_xdr(message: Message, app_context=None):
 async def _send_vote_xdr(message: Message, ctx: Any, result: Any) -> None:
     """Send the vote XDR (as text or file) plus a short summary of the changes."""
     summary = _vote_xdr_summary(result)
-    xdr = getattr(result, "xdr", None)
-    if not xdr:
+    xdrs = list(getattr(result, "xdrs", []) or [])
+    single_xdr = xdrs[0] if len(xdrs) == 1 else None
+    if not xdrs:
         await message.answer(summary)
         return
-    if len(xdr) > 4000:
-        await ctx.utils_service.answer_text_file(message, xdr, "vote_fund_xdr.txt")
+    if single_xdr is not None and len(single_xdr) <= 4000:
+        await message.answer(single_xdr)
     else:
-        await message.answer(xdr)
+        # Several transactions: one XDR per line, they must be signed in this order
+        await ctx.utils_service.answer_text_file(message, "\n".join(xdrs), "vote_fund_xdr.txt")
     await message.answer(summary)
 
 

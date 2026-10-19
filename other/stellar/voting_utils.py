@@ -18,8 +18,8 @@ from .constants import BASE_FEE, MTLAddresses, MTLAssets
 from .balance_utils import stellar_get_account, stellar_get_all_mtl_holders, stellar_get_holders
 from .xdr_utils import decode_data_value
 
-# Upper bound for operations inside a single vote transaction.
-MAX_VOTE_OPERATIONS = 80
+# Stellar protocol limit: at most 100 operations per transaction.
+MAX_OPS_PER_TRANSACTION = 100
 
 
 @dataclass
@@ -27,14 +27,39 @@ class VoteXdrResult:
     """Outcome of building vote-update XDR.
 
     Attributes:
-        xdr: transaction XDR or ``None`` when nothing had to be changed.
+        xdrs: transactions to sign, in order (each next one uses sequence + 1).
         updated: accounts that got at least one operation.
         skipped: accounts that were already in the desired state.
     """
 
-    xdr: str | None = None
+    xdrs: list[str] = field(default_factory=list)
     updated: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
+
+    @property
+    def xdr(self) -> str | None:
+        """First transaction XDR, if any."""
+        return self.xdrs[0] if self.xdrs else None
+
+
+@dataclass
+class AccountVoteOps:
+    """Planned SetOptions operations for one account.
+
+    Computed before any transaction is built, so accounts can be packed into
+    transactions of at most :data:`MAX_OPS_PER_TRANSACTION` operations without
+    ever splitting a single account between two transactions.
+    """
+
+    account_id: str
+    sequence: int
+    signer_changes: list[tuple[str, int]] = field(default_factory=list)
+    thresholds: int | None = None
+    master_weight: int | None = None
+
+    @property
+    def op_count(self) -> int:
+        return len(self.signer_changes) + (1 if self.thresholds is not None else 0)
 
 
 async def cmd_get_blacklist() -> dict:
@@ -144,57 +169,58 @@ async def cmd_get_new_vote_all_mtl(public_key: str, remove_master: bool = False)
     If public_key is a full Stellar address (>10 chars), generates XDR for that single account.
     Otherwise, generates XDR for all multisp accounts from Grist.
 
-    Accounts that already have the desired signers/thresholds/master weight are
-    skipped: no operations are emitted for them (previously every account got an
-    empty SetOptions, which asked the multisig to sign a no-op).
+    Changes are planned per account first, so:
+      * accounts that already match the calculated weights/thresholds are skipped
+        (no empty SetOptions asking the multisig to sign a no-op);
+      * operations are packed into transactions of at most
+        :data:`MAX_OPS_PER_TRANSACTION` operations, and a single account is never
+        split between transactions;
+      * every next transaction uses sequence + 1, so they can be submitted
+        back-to-back.
 
     Args:
         public_key: Stellar public key or short identifier
         remove_master: Whether to remove master key weight
 
     Returns:
-        VoteXdrResult with the XDR (None when nothing changed) and the account lists
+        VoteXdrResult with one XDR per transaction and the account lists
     """
     vote_list = await cmd_gen_mtl_vote_list()
+
     if len(public_key) > 10:
-        xdr = await gen_vote_xdr(public_key, vote_list, remove_master=remove_master, source=public_key)
-        if xdr:
-            return VoteXdrResult(xdr=xdr, updated=[public_key])
-        return VoteXdrResult(xdr=None, skipped=[public_key])
+        plan = await plan_account_vote_ops(public_key, vote_list, remove_master=remove_master)
+        if plan is None:
+            return VoteXdrResult(skipped=[public_key])
+        transaction = _new_vote_builder(Account(public_key, sequence=plan.sequence))
+        append_account_vote_ops(transaction, plan, source=public_key)
+        return VoteXdrResult(xdrs=[transaction.build().to_xdr()], updated=[public_key])
 
     accounts = await grist_manager.load_table_data(MTLGrist.EURMTL_accounts, filter_dict={"signers_type": ["multisp"]})
 
-    updated: list[str] = []
+    plans: list[AccountVoteOps] = []
     skipped: list[str] = []
-    xdr: str | None = None
-    source_account = await load_account_async(MTLAddresses.public_issuer)
-    transaction = TransactionBuilder(
-        source_account=source_account, network_passphrase=get_network_passphrase(), base_fee=BASE_FEE
-    )
-    sequence = transaction.source_account.sequence
-    transaction.set_timeout(60 * 60 * 24 * 7)
     for account in accounts:
         account_id = account["account_id"]
-        if len(transaction.operations) >= MAX_VOTE_OPERATIONS:
-            logger.warning(
-                "vote xdr: operation limit {} reached, {} accounts left out",
-                MAX_VOTE_OPERATIONS,
-                len(accounts) - len(updated) - len(skipped),
-            )
-            skipped.extend(row["account_id"] for row in accounts[len(updated) + len(skipped) :])
-            break
-        vote_list_copy = deepcopy(vote_list)
-        # return sequence because every build inc number
-        transaction.source_account.sequence = sequence
-        account_xdr = await gen_vote_xdr(account_id, vote_list_copy, transaction, source=account_id, remove_master=True)
-        if account_xdr:
-            updated.append(account_id)
-            xdr = account_xdr
-        else:
+        plan = await plan_account_vote_ops(account_id, deepcopy(vote_list), remove_master=True)
+        if plan is None:
             skipped.append(account_id)
-            logger.debug("vote xdr: {} already up to date, skipped", account_id)
+            continue
+        plans.append(plan)
 
-    return VoteXdrResult(xdr=xdr, updated=updated, skipped=skipped)
+    if not plans:
+        logger.info("vote xdr: nothing to update, {} accounts already fine", len(skipped))
+        return VoteXdrResult(skipped=skipped)
+
+    issuer_account = await load_account_async(MTLAddresses.public_issuer)
+    source_account = Account(MTLAddresses.public_issuer, sequence=int(issuer_account.sequence))
+    xdrs = build_vote_transactions(plans, source_account)
+    logger.info(
+        "vote xdr: {} accounts to update in {} transaction(s), {} without changes",
+        len(plans),
+        len(xdrs),
+        len(skipped),
+    )
+    return VoteXdrResult(xdrs=xdrs, updated=[plan.account_id for plan in plans], skipped=skipped)
 
 
 def is_vote_distribution_within_limit(weights: list[int], max_share: float = 0.40) -> bool:
@@ -477,36 +503,74 @@ async def cmd_gen_fin_vote_list(account_id: str = MTLAddresses.public_fin) -> li
     return final_list
 
 
-async def gen_vote_xdr(
+def _new_vote_builder(source_account: Account) -> TransactionBuilder:
+    """Create a transaction builder with the standard vote-update settings."""
+    transaction = TransactionBuilder(
+        source_account=source_account, network_passphrase=get_network_passphrase(), base_fee=BASE_FEE
+    )
+    transaction.set_timeout(60 * 60 * 24 * 7)
+    return transaction
+
+
+def pack_account_plans(
+    plans: list[AccountVoteOps], max_ops: int = MAX_OPS_PER_TRANSACTION
+) -> list[list[AccountVoteOps]]:
+    """Group account plans into transactions of at most ``max_ops`` operations.
+
+    A single account is never split between transactions: its operations belong
+    to one SetOptions batch and must be signed together.
+
+    Args:
+        plans: Per-account operation plans in the desired order.
+        max_ops: Hard limit of operations per transaction (Stellar allows 100).
+
+    Returns:
+        List of transactions, each one a list of account plans.
+    """
+    batches: list[list[AccountVoteOps]] = []
+    current: list[AccountVoteOps] = []
+    current_ops = 0
+
+    for plan in plans:
+        if plan.op_count > max_ops:
+            raise ValueError(
+                f"account {plan.account_id} needs {plan.op_count} operations, "
+                f"which does not fit into one transaction ({max_ops} max)"
+            )
+        if current and current_ops + plan.op_count > max_ops:
+            batches.append(current)
+            current = []
+            current_ops = 0
+        current.append(plan)
+        current_ops += plan.op_count
+
+    if current:
+        batches.append(current)
+    return batches
+
+
+async def plan_account_vote_ops(
     public_key: str,
     vote_list: list[MyShareHolder],
-    transaction: TransactionBuilder = None,
-    source: str = None,
     remove_master: bool = False,
     max_count: int = 20,
     threshold_style: int = 0,
-) -> str | None:
-    """
-    Create SetOptions XDR with signers for voting.
+) -> AccountVoteOps | None:
+    """Compute the SetOptions changes an account needs, without building a transaction.
 
-    Updates the account's signers based on calculated voting weights and
-    sets appropriate thresholds. Only real changes produce operations: signer
-    weights that already match, thresholds that are already correct and a
-    master weight that is already 0 do not add anything.
+    Weights, thresholds and the master weight are compared with the current
+    account state, so an up-to-date account yields ``None`` (nothing to sign).
 
     Args:
-        public_key: Account to update signers for
-        vote_list: List of shareholders with calculated votes
-        transaction: Optional existing transaction builder to append to
-        source: Source account for operations
-        remove_master: Whether to set master key weight to 0
-        max_count: Maximum number of signers to include
-        threshold_style: 0 for 50%+1 threshold, 1 for 2/3 threshold
+        public_key: Account to inspect.
+        vote_list: Shareholders with calculated votes (modified in place).
+        remove_master: Whether the master key weight must be set to 0.
+        max_count: Maximum number of signers to keep.
+        threshold_style: 0 for 50%+1 threshold, 1 for 2/3 threshold.
 
     Returns:
-        XDR transaction string, or ``None`` when the account needs no changes.
+        Planned operations, or ``None`` when the account already matches.
     """
-    # Load signers, thresholds and sequence without blocking the event loop
     source_account = await load_account_async(public_key)
 
     sg = source_account.load_ed25519_public_key_signers()
@@ -548,20 +612,12 @@ async def gen_vote_xdr(
 
     vote_list = tmp_list
 
-    if transaction is None:
-        root_account = Account(public_key, sequence=source_account.sequence)
-        transaction = TransactionBuilder(
-            source_account=root_account, network_passphrase=get_network_passphrase(), base_fee=BASE_FEE
-        )
-        transaction.set_timeout(60 * 60 * 24 * 7)
-
-    changed = False
+    signer_changes: list[tuple[str, int]] = []
     threshold = 0
 
     for arr in vote_list:
         if int(arr.calculated_votes) != int(arr.votes):
-            transaction.append_ed25519_public_key_signer(arr.account_id, int(arr.calculated_votes), source=source)
-            changed = True
+            signer_changes.append((arr.account_id, int(arr.calculated_votes)))
         threshold += int(arr.calculated_votes)
 
     if threshold_style == 1:
@@ -572,20 +628,89 @@ async def gen_vote_xdr(
     thresholds_changed = (threshold, threshold, threshold) != current_thresholds
     master_needs_reset = remove_master and current_weights.get(public_key, 0) != 0
 
-    if thresholds_changed or master_needs_reset:
-        transaction.append_set_options_op(
-            low_threshold=threshold,
-            med_threshold=threshold,
-            high_threshold=threshold,
-            source=source,
-            master_weight=0 if master_needs_reset else None,
-        )
-        changed = True
-
-    if not changed:
-        logger.debug("gen_vote_xdr: no changes for {}, nothing to sign", public_key)
+    if not signer_changes and not thresholds_changed and not master_needs_reset:
+        logger.debug("plan_account_vote_ops: no changes for {}, nothing to sign", public_key)
         return None
 
+    return AccountVoteOps(
+        account_id=public_key,
+        sequence=int(source_account.sequence),
+        signer_changes=signer_changes,
+        thresholds=threshold if (thresholds_changed or master_needs_reset) else None,
+        master_weight=0 if master_needs_reset else None,
+    )
+
+
+def append_account_vote_ops(transaction: TransactionBuilder, plan: AccountVoteOps, source: str | None = None) -> None:
+    """Append the planned operations of one account to a transaction builder."""
+    op_source = source or plan.account_id
+    for key, weight in plan.signer_changes:
+        transaction.append_ed25519_public_key_signer(key, weight, source=op_source)
+    if plan.thresholds is not None:
+        transaction.append_set_options_op(
+            low_threshold=plan.thresholds,
+            med_threshold=plan.thresholds,
+            high_threshold=plan.thresholds,
+            source=op_source,
+            master_weight=plan.master_weight,
+        )
+
+
+def build_vote_transactions(plans: list[AccountVoteOps], source_account: Account) -> list[str]:
+    """Build one XDR per transaction, keeping a single account inside one transaction.
+
+    The builders share ``source_account``, so every next transaction gets
+    sequence + 1 (``TransactionBuilder.build`` increments it) as Stellar requires
+    for transactions submitted back-to-back.
+    """
+    xdrs: list[str] = []
+    for batch in pack_account_plans(plans):
+        transaction = _new_vote_builder(source_account)
+        for plan in batch:
+            append_account_vote_ops(transaction, plan, source=plan.account_id)
+        xdrs.append(transaction.build().to_xdr())
+    return xdrs
+
+
+async def gen_vote_xdr(
+    public_key: str,
+    vote_list: list[MyShareHolder],
+    transaction: TransactionBuilder = None,
+    source: str = None,
+    remove_master: bool = False,
+    max_count: int = 20,
+    threshold_style: int = 0,
+) -> str | None:
+    """
+    Create SetOptions XDR with signers for a single account.
+
+    Only real changes produce operations: signer weights that already match,
+    thresholds that are already correct and a master weight that is already 0
+    do not add anything.
+
+    Args:
+        public_key: Account to update signers for
+        vote_list: List of shareholders with calculated votes
+        transaction: Optional existing transaction builder to append to
+        source: Source account for operations
+        remove_master: Whether to set master key weight to 0
+        max_count: Maximum number of signers to include
+        threshold_style: 0 for 50%+1 threshold, 1 for 2/3 threshold
+
+    Returns:
+        XDR transaction string, or ``None`` when the account needs no changes.
+    """
+    plan = await plan_account_vote_ops(
+        public_key, vote_list, remove_master=remove_master, max_count=max_count, threshold_style=threshold_style
+    )
+    if plan is None:
+        return None
+
+    if transaction is None:
+        root_account = Account(public_key, sequence=plan.sequence)
+        transaction = _new_vote_builder(root_account)
+
+    append_account_vote_ops(transaction, plan, source=source)
     return transaction.build().to_xdr()
 
 
