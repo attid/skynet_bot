@@ -10,7 +10,7 @@ from aiogram.types import Message, FSInputFile
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from other.aiogram_tools import extract_message_url, message_text
+from other.aiogram_tools import describe_reply_dump, extract_reply_url, message_full_text
 from other.config_reader import start_path
 from other.constants import MTLChats
 from other.utils import float2str
@@ -48,10 +48,10 @@ def _resolve_decode_argument(message: Message) -> tuple[str | None, str]:
 
     reply = message.reply_to_message
     if reply is not None:
-        url = extract_message_url(reply)
+        url = extract_reply_url(message)
         if url:
             return url, "reply_url"
-        reply_text = message_text(reply).strip()
+        reply_text = message_full_text(reply).strip()
         if _XDR_TOKEN_RE.match(reply_text):
             return reply_text, "reply_xdr"
     return None, "none"
@@ -91,11 +91,15 @@ async def cmd_decode(message: Message, app_context=None):
         source,
         full_data,
         message.text,
-        message_text(message.reply_to_message) if message.reply_to_message else None,
+        message_full_text(message.reply_to_message) if message.reply_to_message else None,
     )
 
     if not argument:
-        logger.info("decode: nothing to decode, {}", _describe_message(message))
+        logger.info(
+            "decode: nothing to decode, {} | {}",
+            _describe_message(message),
+            describe_reply_dump(message),
+        )
         await message.reply(
             "Не вижу, что декодировать. Пришли <code>/decode XDR</code> или "
             "<code>/decode ссылка на тулзу</code>, либо ответь командой на сообщение со ссылкой."

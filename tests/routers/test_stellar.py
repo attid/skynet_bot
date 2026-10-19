@@ -69,6 +69,108 @@ async def test_decode_command(mock_telegram, router_app_context):
 
 
 @pytest.mark.asyncio
+async def test_decode_command_reply_to_rich_post(mock_telegram, router_app_context):
+    """/decode replying to a channel post that is a rich message."""
+    dp = router_app_context.dispatcher
+    dp.message.middleware(RouterTestMiddleware(router_app_context))
+    dp.include_router(stellar_router)
+
+    router_app_context.stellar_service.check_url_xdr.return_value = ["Rich post decoded"]
+
+    rich_post = types.Message(
+        message_id=34,
+        date=datetime.datetime.now(),
+        chat=types.Chat(id=-1001784614029, type="supergroup", title="Comments"),
+        from_user=types.User(id=777, is_bot=True, first_name="ChannelBot"),
+        rich_message=types.RichMessage(
+            blocks=[
+                types.RichBlockParagraph(
+                    text="❗ #active Вопрос 706 — подписать: https://eurmtl.me/sign_tools/2f633a09c0ffee"
+                )
+            ]
+        ),
+    )
+
+    update = types.Update(
+        update_id=33,
+        message=types.Message(
+            message_id=35,
+            date=datetime.datetime.now(),
+            chat=types.Chat(id=-1001784614029, type="supergroup", title="Comments"),
+            from_user=types.User(id=84131737, is_bot=False, first_name="Igor", username="itolstov"),
+            text="/decode",
+            message_thread_id=34,
+            reply_to_message=rich_post,
+        ),
+    )
+
+    await dp.feed_update(bot=router_app_context.bot, update=update)
+
+    args, _ = router_app_context.stellar_service.check_url_xdr.call_args
+    assert args[0] == "https://eurmtl.me/sign_tools/2f633a09c0ffee"
+    requests = mock_telegram.get_requests()
+    assert any("Rich post decoded" in r["data"]["text"] for r in requests if r["method"] == "sendMessage")
+
+
+@pytest.mark.asyncio
+async def test_decode_long_result_sent_as_single_rich_message(mock_telegram, router_app_context):
+    """Long decode output must not fall apart into several 4096-char messages."""
+    dp = router_app_context.dispatcher
+    dp.message.middleware(RouterTestMiddleware(router_app_context))
+    dp.include_router(stellar_router)
+
+    router_app_context.stellar_service.decode_xdr.return_value = ["line " + "x" * 60 for _ in range(120)]
+
+    update = types.Update(
+        update_id=34,
+        message=types.Message(
+            message_id=36,
+            date=datetime.datetime.now(),
+            chat=types.Chat(id=123, type="supergroup", title="Group"),
+            from_user=types.User(id=999, is_bot=False, first_name="User", username="user"),
+            text="/decode AAAA",
+        ),
+    )
+
+    await dp.feed_update(bot=router_app_context.bot, update=update)
+
+    methods = [r["method"] for r in mock_telegram.get_requests()]
+    assert methods.count("sendRichMessage") == 1
+    assert "sendMessage" not in methods
+
+
+@pytest.mark.asyncio
+async def test_decode_long_result_falls_back_to_plain_messages(mock_telegram, router_app_context):
+    """When the chat rejects a rich message, the old chunked replies are used."""
+    dp = router_app_context.dispatcher
+    dp.message.middleware(RouterTestMiddleware(router_app_context))
+    dp.include_router(stellar_router)
+
+    mock_telegram.add_response(
+        "sendRichMessage",
+        {"ok": False, "error_code": 400, "description": "Bad Request: rich messages are not supported"},
+    )
+    router_app_context.stellar_service.decode_xdr.return_value = ["line " + "x" * 60 for _ in range(120)]
+
+    update = types.Update(
+        update_id=35,
+        message=types.Message(
+            message_id=37,
+            date=datetime.datetime.now(),
+            chat=types.Chat(id=123, type="supergroup", title="Group"),
+            from_user=types.User(id=999, is_bot=False, first_name="User", username="user"),
+            text="/decode AAAA",
+        ),
+    )
+
+    await dp.feed_update(bot=router_app_context.bot, update=update)
+
+    sent = [r for r in mock_telegram.get_requests() if r["method"] == "sendMessage"]
+    assert len(sent) >= 2
+    assert all(len(r["data"]["text"]) <= 4096 for r in sent)
+
+
+@pytest.mark.asyncio
 async def test_show_bim_command(mock_telegram, router_app_context):
     dp = router_app_context.dispatcher
     dp.message.middleware(RouterTestMiddleware(router_app_context))

@@ -386,6 +386,89 @@ async def test_skynet_decode_shows_failure_reason(mock_telegram, router_app_cont
 
 
 @pytest.mark.asyncio
+async def test_skynet_decode_reply_to_rich_post(mock_telegram, router_app_context):
+    """SKYNET ДЕКОДИРУЙ finds the link inside a rich-message channel post."""
+    dp = router_app_context.dispatcher
+    dp.message.middleware(RouterTestMiddleware(router_app_context))
+    dp.include_router(talk_router)
+
+    router_app_context.stellar_service.check_url_xdr.return_value = ["Rich reply decoded"]
+
+    rich_post = types.Message(
+        message_id=220,
+        date=datetime.datetime.now(),
+        chat=types.Chat(id=456, type="supergroup", title="Comments"),
+        from_user=types.User(id=555, is_bot=True, first_name="ChannelBot"),
+        rich_message=types.RichMessage(
+            blocks=[
+                types.RichBlockParagraph(
+                    text=[
+                        types.RichTextBold(text="#active Вопрос 706"),
+                        " — подписать: https://eurmtl.me/sign_tools/2f633a09c0ffee",
+                    ]
+                )
+            ]
+        ),
+    )
+
+    update = types.Update(
+        update_id=22,
+        message=types.Message(
+            message_id=221,
+            date=datetime.datetime.now(),
+            chat=types.Chat(id=456, type="supergroup", title="Comments"),
+            from_user=types.User(id=123, is_bot=False, first_name="User", username="user"),
+            text="Скайнет декодируй",
+            message_thread_id=220,
+            reply_to_message=rich_post,
+        ),
+    )
+
+    await dp.feed_update(bot=router_app_context.bot, update=update)
+
+    args, _ = router_app_context.stellar_service.check_url_xdr.call_args
+    assert args[0] == "https://eurmtl.me/sign_tools/2f633a09c0ffee"
+    requests = mock_telegram.get_requests()
+    assert any("Rich reply decoded" in r["data"]["text"] for r in requests if r["method"] == "sendMessage")
+
+
+@pytest.mark.asyncio
+async def test_skynet_decode_long_result_sent_as_rich_message(mock_telegram, router_app_context):
+    """Long decode answers go out as one rich message instead of three parts."""
+    dp = router_app_context.dispatcher
+    dp.message.middleware(RouterTestMiddleware(router_app_context))
+    dp.include_router(talk_router)
+
+    router_app_context.stellar_service.check_url_xdr.return_value = ["line " + "x" * 60 for _ in range(120)]
+
+    url_msg = types.Message(
+        message_id=222,
+        date=datetime.datetime.now(),
+        chat=types.Chat(id=456, type="supergroup", title="Comments"),
+        from_user=types.User(id=789, is_bot=False, first_name="Other", username="other"),
+        text="https://eurmtl.me/sign_tools/2f633a09c0ffee",
+    )
+
+    update = types.Update(
+        update_id=23,
+        message=types.Message(
+            message_id=223,
+            date=datetime.datetime.now(),
+            chat=types.Chat(id=456, type="supergroup", title="Comments"),
+            from_user=types.User(id=123, is_bot=False, first_name="User", username="user"),
+            text="SKYNET ДЕКОДИРУЙ",
+            reply_to_message=url_msg,
+        ),
+    )
+
+    await dp.feed_update(bot=router_app_context.bot, update=update)
+
+    methods = [r["method"] for r in mock_telegram.get_requests()]
+    assert methods.count("sendRichMessage") == 1
+    assert "sendMessage" not in methods
+
+
+@pytest.mark.asyncio
 async def test_skynet_remind_command(mock_telegram, router_app_context):
     """Test cmd_last_check_remind - SKYNET НАПОМНИ triggers remind."""
     dp = router_app_context.dispatcher

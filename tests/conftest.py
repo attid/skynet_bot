@@ -167,6 +167,23 @@ async def mock_telegram(telegram_server_config):
                     },
                 }
             )
+        elif method == "sendRichMessage":
+            chat_id = data.get("chat_id", 0)
+            rich = data.get("rich_message") or {}
+            text = ""
+            if isinstance(rich, dict):
+                text = rich.get("html") or rich.get("markdown") or ""
+            return web.json_response(
+                {
+                    "ok": True,
+                    "result": {
+                        "message_id": random.randint(1, 1000),
+                        "date": 1234567890,
+                        "chat": {"id": chat_id, "type": "private"},
+                        "text": text,
+                    },
+                }
+            )
         elif method == "sendPhoto":
             chat_id = data.get("chat_id", 0)
             caption = data.get("caption")

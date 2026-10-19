@@ -2,10 +2,19 @@ import asyncio
 import html
 import re
 from enum import Enum
+from typing import Any
 
 from aiogram import Bot
 from aiogram.filters import Filter
-from aiogram.types import Message, User, Chat, ChatMember, ReactionTypeCustomEmoji, BufferedInputFile
+from aiogram.types import (
+    BufferedInputFile,
+    Chat,
+    ChatMember,
+    InputRichMessage,
+    Message,
+    ReactionTypeCustomEmoji,
+    User,
+)
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from middlewares.retry import logger
@@ -166,12 +175,52 @@ def message_text(message: Message) -> str:
     return message_body(message)[0]
 
 
+def rich_message_text(message: Message) -> str:
+    """Flatten ``Message.rich_message`` blocks into plain text.
+
+    Rich posts (the new Bot API message format) carry their content in blocks,
+    so ``text``/``caption`` stay empty for them.
+    """
+    rich_message = getattr(message, "rich_message", None)
+    if rich_message is None:
+        return ""
+    try:
+        payload = rich_message.model_dump(exclude_none=True)
+    except Exception:
+        logger.exception("cannot dump rich_message")
+        return ""
+    return "\n".join(_iter_string_values(payload, skip_keys={"type"}))
+
+
+def _iter_string_values(value: Any, skip_keys: set[str] | None = None) -> list[str]:
+    """Collect all string values of a nested pydantic-dump structure."""
+    skip_keys = skip_keys or set()
+    found: list[str] = []
+    if isinstance(value, str):
+        found.append(value)
+    elif isinstance(value, dict):
+        for key, nested in value.items():
+            if key in skip_keys:
+                continue
+            found.extend(_iter_string_values(nested, skip_keys))
+    elif isinstance(value, (list, tuple)):
+        for nested in value:
+            found.extend(_iter_string_values(nested, skip_keys))
+    return found
+
+
+def message_full_text(message: Message) -> str:
+    """Return any searchable text of a message: text, caption or rich blocks."""
+    return message_text(message) or rich_message_text(message)
+
+
 def extract_message_url(message: Message, host: str = "eurmtl.me", allow_scheme_less: bool = True) -> str | None:
-    """Find an URL of ``host`` in the message text, caption, entities or buttons.
+    """Find an URL of ``host`` in the message text, caption, rich blocks, entities or buttons.
 
     Handles messages where the link is hidden behind a text_link entity
-    (markdown-style links), links without an explicit scheme and links that
-    live only in an inline keyboard button (sign-tool notifications).
+    (markdown-style links), links without an explicit scheme, links that live
+    only in an inline keyboard button (sign-tool notifications) and rich
+    messages that carry their content in blocks instead of ``text``.
     """
     text, entities = message_body(message)
     url = extract_url(text, host, allow_scheme_less=allow_scheme_less)
@@ -191,7 +240,51 @@ def extract_message_url(message: Message, host: str = "eurmtl.me", allow_scheme_
                 continue
             if found:
                 return found
+    url = extract_url(rich_message_text(message), host, allow_scheme_less=allow_scheme_less)
+    if url:
+        return url
     return extract_url_from_reply_markup(message, host, allow_scheme_less=allow_scheme_less)
+
+
+def extract_reply_url(message: Message, host: str = "eurmtl.me", allow_scheme_less: bool = True) -> str | None:
+    """Find a tool URL in what an incoming message replies to.
+
+    Looks into the replied message itself (text, caption, rich blocks,
+    buttons) and into the server-side quote, which is how replies to a channel
+    post in a comments thread are delivered.
+    """
+    reply = getattr(message, "reply_to_message", None)
+    if reply is not None:
+        url = extract_message_url(reply, host, allow_scheme_less=allow_scheme_less)
+        if url:
+            return url
+    quote = getattr(message, "quote", None)
+    quote_text = getattr(quote, "text", None)
+    if quote_text:
+        url = extract_url(quote_text, host, allow_scheme_less=allow_scheme_less)
+        if url:
+            return url
+    return None
+
+
+def describe_reply_dump(message: Message, limit: int = 2500) -> str:
+    """Compact dump of the replied message for debugging unreadable replies."""
+    reply = getattr(message, "reply_to_message", None)
+    parts: list[str] = []
+    if reply is None:
+        parts.append("reply=None")
+    else:
+        try:
+            parts.append(f"reply_type={type(reply).__name__}")
+            parts.append(f"reply_keys={sorted(reply.model_dump(exclude_none=True).keys())}")
+            parts.append(f"reply_dump={reply.model_dump_json(exclude_none=True)[:limit]}")
+        except Exception:
+            logger.exception("cannot dump replied message")
+            parts.append(f"reply_repr={reply!r}"[:limit])
+    quote = getattr(message, "quote", None)
+    if quote is not None:
+        parts.append(f"quote_text={getattr(quote, 'text', None)!r}"[:limit])
+    return " | ".join(parts)
 
 
 def extract_url_from_reply_markup(
@@ -211,10 +304,53 @@ def extract_url_from_reply_markup(
     return None
 
 
+# Plain ``sendMessage`` allows 4096 characters, rich messages allow 16384.
+PLAIN_MESSAGE_LIMIT = 4000
+RICH_MESSAGE_LIMIT = 16000
+
+
+def split_html(text: str, limit: int) -> list[str]:
+    """Split HTML text into chunks of at most ``limit`` characters.
+
+    Prefers splitting on a newline so tags are not cut in the middle.
+    """
+    chunks: list[str] = []
+    rest = text
+    while len(rest) > limit:
+        cut = rest.rfind("\n", 0, limit)
+        if cut <= 0:
+            cut = limit
+        chunks.append(rest[:cut])
+        rest = rest[cut:].lstrip("\n")
+    if rest:
+        chunks.append(rest)
+    return chunks
+
+
 async def multi_reply(message: Message, text: str):
-    while len(text) > 0:
-        await message.reply(text[:4000])
-        text = text[4000:]
+    """Reply with ``text``, keeping long answers in a single rich message.
+
+    Plain messages are limited to 4096 characters, so long texts used to arrive
+    as several messages. Rich messages hold up to 16384 characters; when the
+    chat rejects one, we fall back to the classic chunked replies.
+    """
+    if not text:
+        return
+    if len(text) <= PLAIN_MESSAGE_LIMIT:
+        await message.reply(text)
+        return
+
+    sent = 0
+    while sent < len(text):
+        chunk = text[sent : sent + RICH_MESSAGE_LIMIT]
+        try:
+            await message.reply_rich(InputRichMessage(html=chunk))
+        except Exception:
+            logger.warning("rich reply failed (len=%s), falling back to plain replies", len(chunk), exc_info=True)
+            for plain_chunk in split_html(text[sent:], PLAIN_MESSAGE_LIMIT):
+                await message.reply(plain_chunk)
+            return
+        sent += RICH_MESSAGE_LIMIT
 
 
 async def multi_answer(message: Message, text: str):

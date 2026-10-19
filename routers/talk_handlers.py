@@ -9,7 +9,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Any, cast
 
 from middlewares.throttling import rate_limit
-from other.aiogram_tools import HasText, has_words, StartText, ReplyToBot, extract_message_url, message_text
+from other.aiogram_tools import (
+    HasText,
+    ReplyToBot,
+    StartText,
+    describe_reply_dump,
+    extract_reply_url,
+    has_words,
+    message_full_text,
+)
 from other.constants import MTLChats, BotValueTypes
 from services.command_registry_service import update_command_info
 from other.pyro_tools import extract_telegram_info, pyro_update_msg_info
@@ -115,7 +123,7 @@ async def cmd_last_check_decode(message: Message, bot: Bot, app_context: AppCont
     utils_service = cast(Any, app_context.utils_service)
 
     reply = message.reply_to_message
-    url = extract_message_url(reply) if reply else None
+    url = extract_reply_url(message) if reply else None
     logger.debug(
         "skynet decode: chat={} thread={} topic={} msg={} reply_msg={} reply_text={!r} url={!r}",
         message.chat.id if message.chat else None,
@@ -123,16 +131,17 @@ async def cmd_last_check_decode(message: Message, bot: Bot, app_context: AppCont
         message.is_topic_message,
         message.message_id,
         reply.message_id if reply else None,
-        message_text(reply) if reply else None,
+        message_full_text(reply) if reply else None,
         url,
     )
 
     if reply is not None:
         if not url:
             logger.info(
-                "skynet decode: no eurmtl url in replied message (reply_msg={}), chat={}",
+                "skynet decode: no eurmtl url in replied message (reply_msg={}), chat={} | {}",
                 reply.message_id,
                 message.chat.id if message.chat else None,
+                describe_reply_dump(message),
             )
             await message.reply("Ссылка не найдена")
             return
@@ -146,10 +155,10 @@ async def cmd_last_check_decode(message: Message, bot: Bot, app_context: AppCont
     if not pinned_url:
         await message.reply("Ссылка не найдена")
         return
-    await _decode_url(message, pinned_url, stellar_service, utils_service, limit=4000)
+    await _decode_url(message, pinned_url, stellar_service, utils_service)
 
 
-async def _decode_url(message: Message, url: str, stellar_service: Any, utils_service: Any, limit: int = 4000):
+async def _decode_url(message: Message, url: str, stellar_service: Any, utils_service: Any):
     """Decode a sign_tools URL and answer in chat, showing the real failure reason."""
     try:
         msg = "\n".join(await stellar_service.check_url_xdr(url))
@@ -166,7 +175,7 @@ async def _decode_url(message: Message, url: str, stellar_service: Any, utils_se
     if not msg:
         await message.reply("Декодировать нечего — пустой результат.")
         return
-    await utils_service.multi_reply(message, msg[:limit])
+    await utils_service.multi_reply(message, msg)
 
 
 @update_command_info("Скайнет напомни", "Попросить Скайнет напомнить про подпись транзакции. Только в рабочем чате.")

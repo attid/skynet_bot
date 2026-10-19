@@ -2,7 +2,13 @@ import datetime
 
 from aiogram import types
 
-from other.aiogram_tools import extract_message_url, message_body, message_text
+from other.aiogram_tools import (
+    extract_message_url,
+    extract_reply_url,
+    message_body,
+    message_text,
+    rich_message_text,
+)
 from other.text_tools import extract_url
 
 
@@ -73,6 +79,44 @@ def test_extract_message_url_from_hidden_text_link():
 def test_extract_message_url_rejects_other_host():
     message = _message(text="https://example.com/sign_tools/abc")
     assert extract_message_url(message) is None
+
+
+def test_extract_message_url_from_rich_message_blocks():
+    """Rich channel posts keep content in blocks, not in text/caption."""
+    rich = types.RichMessage(
+        blocks=[
+            types.RichBlockParagraph(
+                text=[
+                    "MTLF: Signing and voting ",
+                    types.RichTextBold(text="#active Вопрос 706"),
+                    " ссылка: https://eurmtl.me/sign_tools/2f633a09c0ffee",
+                ]
+            )
+        ]
+    )
+    message = _message(rich_message=rich)
+
+    assert message_text(message) == ""
+    assert "sign_tools/2f633a09c0ffee" in rich_message_text(message)
+    assert extract_message_url(message) == "https://eurmtl.me/sign_tools/2f633a09c0ffee"
+
+
+def test_extract_message_url_from_quoted_post():
+    """Reply to a channel post delivers the link only through Message.quote."""
+    quoted = types.Message(
+        message_id=2,
+        date=datetime.datetime.now(),
+        chat=types.Chat(id=1, type="supergroup", title="Comments"),
+        from_user=types.User(id=2, is_bot=False, first_name="Author"),
+    )
+    message = _message(
+        text="/decode",
+        reply_to_message=quoted,
+        quote=types.TextQuote(text="Вопрос 706: https://eurmtl.me/sign_tools/2f633a09c0ffee", position=0),
+    )
+
+    assert extract_message_url(message.reply_to_message) is None
+    assert extract_reply_url(message) == "https://eurmtl.me/sign_tools/2f633a09c0ffee"
 
 
 def test_extract_message_url_from_inline_button():
