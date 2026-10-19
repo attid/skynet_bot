@@ -1,4 +1,5 @@
 from datetime import datetime
+import re
 from urllib.parse import quote
 from typing import Any, cast
 
@@ -9,6 +10,7 @@ from aiogram.types import Message, FSInputFile
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from other.aiogram_tools import extract_message_url, message_text
 from other.config_reader import start_path
 from other.constants import MTLChats
 from other.utils import float2str
@@ -16,6 +18,53 @@ from services.command_registry_service import update_command_info
 from services.skyuser import SkyUser
 
 router = Router()
+
+# Raw XDR is a long base64 blob; a replied message with such a token is decoded too.
+_XDR_TOKEN_RE = re.compile(r"^[A-Za-z0-9+/=]{32,}$")
+
+
+def _is_full_data(app_context: Any, chat_id: int) -> bool:
+    """Resolve the per-chat ``full_data`` flag from the feature-flag service."""
+    feature_flags = getattr(app_context, "feature_flags", None)
+    if feature_flags is None:
+        return False
+    try:
+        return bool(feature_flags.is_full_data(chat_id))
+    except Exception:
+        logger.exception("decode: cannot resolve full_data flag, chat={}", chat_id)
+        return False
+
+
+def _resolve_decode_argument(message: Message) -> tuple[str | None, str]:
+    """Pick what to decode: command argument first, then the replied message.
+
+    Returns:
+        ``(argument, source)`` where source is ``command``, ``reply_url``,
+        ``reply_xdr`` or ``none``.
+    """
+    tokens = (message.text or "").split(maxsplit=1)
+    if len(tokens) > 1 and tokens[1].strip():
+        return tokens[1].split()[0], "command"
+
+    reply = message.reply_to_message
+    if reply is not None:
+        url = extract_message_url(reply)
+        if url:
+            return url, "reply_url"
+        reply_text = message_text(reply).strip()
+        if _XDR_TOKEN_RE.match(reply_text):
+            return reply_text, "reply_xdr"
+    return None, "none"
+
+
+def _describe_message(message: Message) -> str:
+    """Compact message context for logs (chat, forum thread, replied message)."""
+    reply = message.reply_to_message
+    return (
+        f"chat={message.chat.id if message.chat else None} "
+        f"thread={message.message_thread_id} topic={message.is_topic_message} "
+        f"msg={message.message_id} reply_msg={reply.message_id if reply else None}"
+    )
 
 
 @update_command_info("/fee", "показать комиссию в стелларе")
@@ -34,21 +83,49 @@ async def cmd_decode(message: Message, app_context=None):
     if not app_context:
         raise ValueError("app_context required")
     ctx = cast(Any, app_context)
-    try:
-        # logger.info(f'decode {message}')
-        parts = (message.text or "").split()
-        xdr_str = parts[1]
-        full_data = ctx.config_service.is_full_data(message.chat.id)
+    argument, source = _resolve_decode_argument(message)
+    full_data = _is_full_data(ctx, message.chat.id if message.chat else 0)
+    logger.debug(
+        "decode: {} source={} full_data={} text={!r} reply_text={!r}",
+        _describe_message(message),
+        source,
+        full_data,
+        message.text,
+        message_text(message.reply_to_message) if message.reply_to_message else None,
+    )
 
-        if (message.text or "").find("eurmtl.me") > -1:
-            msg = await ctx.stellar_service.check_url_xdr(xdr_str, full_data=full_data)
+    if not argument:
+        logger.info("decode: nothing to decode, {}", _describe_message(message))
+        await message.reply(
+            "Не вижу, что декодировать. Пришли <code>/decode XDR</code> или "
+            "<code>/decode ссылка на тулзу</code>, либо ответь командой на сообщение со ссылкой."
+        )
+        return
+
+    try:
+        if "eurmtl.me" in argument:
+            logger.debug("decode: fetching url {}", argument)
+            msg = await ctx.stellar_service.check_url_xdr(argument, full_data=full_data)
         else:
-            msg = await ctx.stellar_service.decode_xdr(xdr_str, full_data=full_data)
+            msg = await ctx.stellar_service.decode_xdr(argument, full_data=full_data)
         msg = "\n".join(msg)
-        await ctx.utils_service.multi_reply(message, msg)
     except Exception as e:
-        await message.reply("Параметр не распознан. Надо xdr или ссылку на тулзу")
-        logger.error(e)
+        logger.exception(
+            "decode failed: {} source={} full_data={} argument={!r}",
+            _describe_message(message),
+            source,
+            full_data,
+            argument,
+        )
+        await message.reply(f"Не смог декодировать: {type(e).__name__}: {e}"[:4000])
+        return
+
+    if not msg:
+        logger.info("decode: empty result, {} argument={!r}", _describe_message(message), argument)
+        await message.reply("Декодировать нечего — пустой результат.")
+        return
+
+    await ctx.utils_service.multi_reply(message, msg)
 
 
 @update_command_info("/show_bim", "показать инфо по БДM")

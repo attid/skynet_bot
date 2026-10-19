@@ -270,6 +270,122 @@ async def test_skynet_decode_no_url(mock_telegram, router_app_context):
 
 
 @pytest.mark.asyncio
+async def test_skynet_decode_reply_url_in_button(mock_telegram, router_app_context):
+    """SKYNET ДЕКОДИРУЙ finds the link even when it lives in an inline button."""
+    dp = router_app_context.dispatcher
+    dp.message.middleware(RouterTestMiddleware(router_app_context))
+    dp.include_router(talk_router)
+
+    router_app_context.stellar_service.check_url_xdr.return_value = ["Button URL decoded"]
+
+    sign_msg = types.Message(
+        message_id=210,
+        date=datetime.datetime.now(),
+        chat=types.Chat(id=456, type="supergroup", title="Group"),
+        from_user=types.User(id=555, is_bot=True, first_name="SignBot"),
+        text="Транзакция ожидает подписи",
+        reply_markup=types.InlineKeyboardMarkup(
+            inline_keyboard=[
+                [types.InlineKeyboardButton(text="Подписать", url="https://eurmtl.me/sign_tools/2f633a09c0ffee")]
+            ]
+        ),
+    )
+
+    update = types.Update(
+        update_id=19,
+        message=types.Message(
+            message_id=211,
+            date=datetime.datetime.now(),
+            chat=types.Chat(id=456, type="supergroup", title="Group"),
+            from_user=types.User(id=123, is_bot=False, first_name="User", username="user"),
+            text="SKYNET ДЕКОДИРУЙ",
+            reply_to_message=sign_msg,
+        ),
+    )
+
+    await dp.feed_update(bot=router_app_context.bot, update=update)
+
+    args, _ = router_app_context.stellar_service.check_url_xdr.call_args
+    assert args[0] == "https://eurmtl.me/sign_tools/2f633a09c0ffee"
+    requests = mock_telegram.get_requests()
+    assert any("Button URL decoded" in r["data"]["text"] for r in requests if r["method"] == "sendMessage")
+
+
+@pytest.mark.asyncio
+async def test_skynet_decode_reply_url_with_punctuation(mock_telegram, router_app_context):
+    """Links wrapped in brackets/periods are extracted without the junk."""
+    dp = router_app_context.dispatcher
+    dp.message.middleware(RouterTestMiddleware(router_app_context))
+    dp.include_router(talk_router)
+
+    router_app_context.stellar_service.check_url_xdr.return_value = ["Punctuation decoded"]
+
+    url_msg = types.Message(
+        message_id=212,
+        date=datetime.datetime.now(),
+        chat=types.Chat(id=456, type="supergroup", title="Group"),
+        from_user=types.User(id=789, is_bot=False, first_name="Other", username="other"),
+        text="Вот тулза (https://eurmtl.me/sign_tools/2f633a09c0ffee).",
+    )
+
+    update = types.Update(
+        update_id=20,
+        message=types.Message(
+            message_id=213,
+            date=datetime.datetime.now(),
+            chat=types.Chat(id=456, type="supergroup", title="Group"),
+            from_user=types.User(id=123, is_bot=False, first_name="User", username="user"),
+            text="скайнет декодируй",
+            reply_to_message=url_msg,
+        ),
+    )
+
+    await dp.feed_update(bot=router_app_context.bot, update=update)
+
+    args, _ = router_app_context.stellar_service.check_url_xdr.call_args
+    assert args[0] == "https://eurmtl.me/sign_tools/2f633a09c0ffee"
+
+
+@pytest.mark.asyncio
+async def test_skynet_decode_shows_failure_reason(mock_telegram, router_app_context):
+    """Decode failure is reported with its real reason, not a silent stub."""
+    dp = router_app_context.dispatcher
+    dp.message.middleware(RouterTestMiddleware(router_app_context))
+    dp.include_router(talk_router)
+
+    router_app_context.stellar_service.check_url_xdr.side_effect = Exception("tool is gone")
+
+    url_msg = types.Message(
+        message_id=214,
+        date=datetime.datetime.now(),
+        chat=types.Chat(id=456, type="supergroup", title="Group"),
+        from_user=types.User(id=789, is_bot=False, first_name="Other", username="other"),
+        text="https://eurmtl.me/sign_tools/2f633a09c0ffee",
+    )
+
+    update = types.Update(
+        update_id=21,
+        message=types.Message(
+            message_id=215,
+            date=datetime.datetime.now(),
+            chat=types.Chat(id=456, type="supergroup", title="Group"),
+            from_user=types.User(id=123, is_bot=False, first_name="User", username="user"),
+            text="SKYNET ДЕКОДИРУЙ",
+            reply_to_message=url_msg,
+        ),
+    )
+
+    await dp.feed_update(bot=router_app_context.bot, update=update)
+
+    requests = mock_telegram.get_requests()
+    assert any(
+        "Не смог декодировать: Exception: tool is gone" in r["data"]["text"]
+        for r in requests
+        if r["method"] == "sendMessage"
+    )
+
+
+@pytest.mark.asyncio
 async def test_skynet_remind_command(mock_telegram, router_app_context):
     """Test cmd_last_check_remind - SKYNET НАПОМНИ triggers remind."""
     dp = router_app_context.dispatcher
@@ -556,8 +672,10 @@ async def test_skynet_decode_with_pinned_url(mock_telegram, router_app_context):
 
     from other.constants import BotValueTypes
 
-    # Set up pinned URL in config
-    router_app_context.session.set_bot_config(456, BotValueTypes.PinnedUrl, "https://eurmtl.me/sign_tools?xdr=pinned")
+    # Set up pinned URL in the database service used by the handler
+    await router_app_context.db_service.save_bot_value(
+        456, BotValueTypes.PinnedUrl, "https://eurmtl.me/sign_tools?xdr=pinned"
+    )
     router_app_context.stellar_service.check_url_xdr.return_value = ["Pinned XDR decoded"]
 
     update = types.Update(
@@ -574,6 +692,8 @@ async def test_skynet_decode_with_pinned_url(mock_telegram, router_app_context):
     await dp.feed_update(bot=router_app_context.bot, update=update)
 
     assert router_app_context.stellar_service.check_url_xdr.called
+    args, _ = router_app_context.stellar_service.check_url_xdr.call_args
+    assert args[0] == "https://eurmtl.me/sign_tools?xdr=pinned"
     requests = mock_telegram.get_requests()
     assert any("Pinned XDR decoded" in r["data"]["text"] for r in requests if r["method"] == "sendMessage")
 

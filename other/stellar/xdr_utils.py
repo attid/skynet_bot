@@ -67,6 +67,7 @@ async def check_url_xdr(url: str, full_data: bool = True, grist_manager=None, gl
         List of decoded operation descriptions
     """
     xdr = await get_eurmtl_xdr(url)
+    logger.debug("check_url_xdr: url={} xdr_len={} full_data={}", url, len(xdr or ""), full_data)
     return await decode_xdr(xdr, full_data=full_data, grist_manager=grist_manager, global_data=global_data)
 
 

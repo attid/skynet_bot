@@ -22,6 +22,8 @@ class FakeAsyncMethod:
     async def __call__(self, *args, **kwargs):
         self._calls.append((args, kwargs))
         if self.side_effect is not None:
+            if isinstance(self.side_effect, BaseException):
+                raise self.side_effect
             result = self.side_effect(*args, **kwargs)
             if inspect.isawaitable(result):
                 return await result
@@ -568,7 +570,6 @@ class FakeConfigService:
         self._chat_dict = {}
         self._chat_lists = {}
         self._no_first_link = set()
-        self._full_data = set()
         self._user_status = {}
         # In-memory caches for DI service interface
         self._welcome_messages = {}
@@ -624,15 +625,6 @@ class FakeConfigService:
 
     def remove_no_first_link(self, chat_id):
         self._no_first_link.discard(chat_id)
-
-    def is_full_data(self, chat_id):
-        return chat_id in self._full_data
-
-    def set_full_data(self, chat_id, enabled=True):
-        if enabled:
-            self._full_data.add(chat_id)
-        else:
-            self._full_data.discard(chat_id)
 
     # DI service interface methods (synchronous)
     def get_welcome_message(self, chat_id):

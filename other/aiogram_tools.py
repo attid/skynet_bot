@@ -10,6 +10,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from middlewares.retry import logger
 from other.config_reader import config
+from other.text_tools import extract_url
 from services.app_context import app_context
 
 scheduler: AsyncIOScheduler
@@ -147,6 +148,67 @@ async def cmd_delete_by_scheduler(message: Message):
         await message.delete()
     except Exception:
         pass
+
+
+def message_body(message: Message) -> tuple[str, list]:
+    """Return the searchable body of a message and its entities.
+
+    Media posts keep their text in ``caption``/``caption_entities``, so the
+    plain ``text``/``entities`` pair is empty for them.
+    """
+    if message.text:
+        return message.text, list(message.entities or [])
+    return message.caption or "", list(message.caption_entities or [])
+
+
+def message_text(message: Message) -> str:
+    """Return text or caption of a message."""
+    return message_body(message)[0]
+
+
+def extract_message_url(message: Message, host: str = "eurmtl.me", allow_scheme_less: bool = True) -> str | None:
+    """Find an URL of ``host`` in the message text, caption, entities or buttons.
+
+    Handles messages where the link is hidden behind a text_link entity
+    (markdown-style links), links without an explicit scheme and links that
+    live only in an inline keyboard button (sign-tool notifications).
+    """
+    text, entities = message_body(message)
+    url = extract_url(text, host, allow_scheme_less=allow_scheme_less)
+    if url:
+        return url
+    for entity in entities:
+        entity_url = getattr(entity, "url", None)
+        if entity_url:
+            found = extract_url(entity_url, host, allow_scheme_less=allow_scheme_less)
+            if found:
+                return found
+        if entity.type == "url":
+            try:
+                found = extract_url(entity.extract_from(text), host, allow_scheme_less=allow_scheme_less)
+            except Exception:
+                logger.exception("cannot extract url from entity")
+                continue
+            if found:
+                return found
+    return extract_url_from_reply_markup(message, host, allow_scheme_less=allow_scheme_less)
+
+
+def extract_url_from_reply_markup(
+    message: Message, host: str = "eurmtl.me", allow_scheme_less: bool = False
+) -> str | None:
+    """Find an URL of ``host`` among the inline keyboard buttons of a message."""
+    reply_markup = getattr(message, "reply_markup", None)
+    rows = getattr(reply_markup, "inline_keyboard", None) or []
+    for row in rows:
+        for button in row or []:
+            button_url = getattr(button, "url", None)
+            if not button_url:
+                continue
+            found = extract_url(button_url, host, allow_scheme_less=allow_scheme_less)
+            if found:
+                return found
+    return None
 
 
 async def multi_reply(message: Message, text: str):

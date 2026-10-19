@@ -3,6 +3,7 @@ import asyncio
 import time
 from dataclasses import dataclass
 from typing import Optional, Dict, Any, Union
+from urllib.parse import parse_qs, urlsplit
 
 from loguru import logger
 
@@ -126,6 +127,10 @@ async def get_debank_balance(
 http_session_manager = HTTPSessionManager()
 
 
+class EurmtlXdrError(Exception):
+    """Raised when the eurmtl.me tool page does not return a transaction XDR."""
+
+
 # Пример использования
 async def main():
     session_manager = HTTPSessionManager()
@@ -143,18 +148,55 @@ async def main():
         await session_manager.close()
 
 
-async def get_eurmtl_xdr(url):
-    try:
-        url = "https://eurmtl.me/remote/get_xdr/" + url.split("/")[-1]
-        response = await http_session_manager.get_web_request("GET", url=url)
+async def get_eurmtl_xdr(url: str) -> str:
+    """Fetch the transaction XDR behind an eurmtl.me sign_tools link.
 
-        if "xdr" in response.data:
-            return response.data["xdr"]
-        else:
-            return 'Invalid response format: missing "xdr" field.'
-    except Exception as ex:
-        logger.info(["get_eurmtl_xdr", ex])
-        return "An error occurred during the request."
+    Supports both layouts:
+      * ``https://eurmtl.me/sign_tools/<tool_id>`` — XDR is fetched from
+        ``https://eurmtl.me/remote/get_xdr/<tool_id>``;
+      * ``https://eurmtl.me/sign_tools?xdr=...`` — the XDR is already in the link.
+
+    Raises:
+        EurmtlXdrError: when the link has no tool id, the request failed or
+            the tool did not return an XDR. Callers can show this reason to
+            the user instead of a generic "cannot parse" message.
+    """
+    parsed = urlsplit(url or "")
+    query = parse_qs(parsed.query)
+    inline_xdr = (query.get("xdr") or [None])[0] or (parse_qs(parsed.fragment).get("xdr") or [None])[0]
+    if inline_xdr:
+        logger.debug("get_eurmtl_xdr: xdr taken from the link itself, len={}", len(inline_xdr))
+        return inline_xdr
+
+    segments = [segment for segment in parsed.path.split("/") if segment]
+    tool_id = segments[-1] if len(segments) > 1 else ""
+    logger.debug("get_eurmtl_xdr: input url={!r} path={!r} tool_id={!r}", url, parsed.path, tool_id)
+    if not tool_id:
+        raise EurmtlXdrError(f"в ссылке нет идентификатора тулзы: {url!r}")
+
+    request_url = "https://eurmtl.me/remote/get_xdr/" + tool_id
+    logger.info("get_eurmtl_xdr: GET {}", request_url)
+    try:
+        response = await http_session_manager.get_web_request("GET", url=request_url)
+    except Exception as e:
+        logger.exception("get_eurmtl_xdr: request failed url={}", request_url)
+        raise EurmtlXdrError(f"запрос к eurmtl.me упал: {type(e).__name__}: {e}") from e
+
+    data = getattr(response, "data", None)
+    logger.debug(
+        "get_eurmtl_xdr: url={} status={} payload_type={} payload_keys={}",
+        request_url,
+        getattr(response, "status", None),
+        type(data).__name__,
+        list(data)[:10] if isinstance(data, dict) else None,
+    )
+    if isinstance(data, dict) and data.get("xdr"):
+        xdr = str(data["xdr"])
+        logger.debug("get_eurmtl_xdr: got xdr len={} for {}", len(xdr), request_url)
+        return xdr
+
+    logger.warning("get_eurmtl_xdr: no xdr in payload of {}", request_url)
+    raise EurmtlXdrError(f"тулза не вернула xdr ({request_url}), проверь что ссылка живая")
 
 
 if __name__ == "__main__":

@@ -8,9 +8,8 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Any, cast
 
-from other.text_tools import extract_url
 from middlewares.throttling import rate_limit
-from other.aiogram_tools import HasText, has_words, StartText, ReplyToBot
+from other.aiogram_tools import HasText, has_words, StartText, ReplyToBot, extract_message_url, message_text
 from other.constants import MTLChats, BotValueTypes
 from services.command_registry_service import update_command_info
 from other.pyro_tools import extract_telegram_info, pyro_update_msg_info
@@ -114,35 +113,60 @@ async def cmd_last_check_decode(message: Message, bot: Bot, app_context: AppCont
         raise ValueError("app_context with stellar_service, utils_service, and config_service required")
     stellar_service = cast(Any, app_context.stellar_service)
     utils_service = cast(Any, app_context.utils_service)
-    if message.reply_to_message:
-        url = None
-        if message.reply_to_message.text:
-            if "eurmtl.me/sign_tools" in message.reply_to_message.text:
-                url = extract_url(message.reply_to_message.text)
 
-        if not url and message.reply_to_message.entities:
-            for entity in message.reply_to_message.entities:
-                if entity.type in ["url", "text_link"]:
-                    source_text = message.reply_to_message.text or ""
-                    url = entity.url if entity.type == "text_link" else entity.extract_from(source_text)
-                    if url and "eurmtl.me/sign_tools" in url:
-                        break
-                    else:
-                        url = None
+    reply = message.reply_to_message
+    url = extract_message_url(reply) if reply else None
+    logger.debug(
+        "skynet decode: chat={} thread={} topic={} msg={} reply_msg={} reply_text={!r} url={!r}",
+        message.chat.id if message.chat else None,
+        message.message_thread_id,
+        message.is_topic_message,
+        message.message_id,
+        reply.message_id if reply else None,
+        message_text(reply) if reply else None,
+        url,
+    )
 
-        if url:
-            msg = await stellar_service.check_url_xdr(url)
-            msg = "\n".join(msg)
-            await utils_service.multi_reply(message, msg)
-        else:
+    if reply is not None:
+        if not url:
+            logger.info(
+                "skynet decode: no eurmtl url in replied message (reply_msg={}), chat={}",
+                reply.message_id,
+                message.chat.id if message.chat else None,
+            )
             await message.reply("Ссылка не найдена")
-    else:
-        if not app_context.db_service:
-            raise ValueError("app_context with db_service required")
-        pinned_url = await app_context.db_service.load_bot_value(message.chat.id, BotValueTypes.PinnedUrl, "") or ""
-        msg = await stellar_service.check_url_xdr(pinned_url)
-        msg = "\n".join(msg)
-        await utils_service.multi_reply(message, msg[:4000])
+            return
+        await _decode_url(message, url, stellar_service, utils_service)
+        return
+
+    if not app_context.db_service:
+        raise ValueError("app_context with db_service required")
+    pinned_url = await app_context.db_service.load_bot_value(message.chat.id, BotValueTypes.PinnedUrl, "") or ""
+    logger.debug("skynet decode: no reply, pinned_url={!r}", pinned_url)
+    if not pinned_url:
+        await message.reply("Ссылка не найдена")
+        return
+    await _decode_url(message, pinned_url, stellar_service, utils_service, limit=4000)
+
+
+async def _decode_url(message: Message, url: str, stellar_service: Any, utils_service: Any, limit: int = 4000):
+    """Decode a sign_tools URL and answer in chat, showing the real failure reason."""
+    try:
+        msg = "\n".join(await stellar_service.check_url_xdr(url))
+    except Exception as e:
+        logger.exception(
+            "skynet decode failed: chat={} thread={} msg={} url={!r}",
+            message.chat.id if message.chat else None,
+            message.message_thread_id,
+            message.message_id,
+            url,
+        )
+        await message.reply(f"Не смог декодировать: {type(e).__name__}: {e}"[:4000])
+        return
+    if not msg:
+        await message.reply("Декодировать нечего — пустой результат.")
+        return
+    await utils_service.multi_reply(message, msg[:limit])
 
 
 @update_command_info("Скайнет напомни", "Попросить Скайнет напомнить про подпись транзакции. Только в рабочем чате.")

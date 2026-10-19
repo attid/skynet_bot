@@ -275,7 +275,106 @@ async def test_decode_command_error(mock_telegram, router_app_context):
     await dp.feed_update(bot=router_app_context.bot, update=update)
 
     requests = mock_telegram.get_requests()
-    assert any("не распознан" in r["data"]["text"] for r in requests if r["method"] == "sendMessage")
+    # Reply must carry the real failure reason instead of a generic "cannot parse" text
+    assert any(
+        "Не смог декодировать: Exception: Decode error" in r["data"]["text"]
+        for r in requests
+        if r["method"] == "sendMessage"
+    )
+
+
+@pytest.mark.asyncio
+async def test_decode_command_with_url_uses_feature_flag(mock_telegram, router_app_context):
+    """full_data must come from FeatureFlagsService (ConfigService has no such method)."""
+    dp = router_app_context.dispatcher
+    dp.message.middleware(RouterTestMiddleware(router_app_context))
+    dp.include_router(stellar_router)
+
+    router_app_context.feature_flags.set_feature(123, "full_data", True, persist=False)
+    router_app_context.stellar_service.check_url_xdr.return_value = ["Flagged"]
+
+    update = types.Update(
+        update_id=30,
+        message=types.Message(
+            message_id=30,
+            date=datetime.datetime.now(),
+            chat=types.Chat(id=123, type="supergroup", title="Group"),
+            from_user=types.User(id=999, is_bot=False, first_name="User", username="user"),
+            text="/decode https://eurmtl.me/sign_tools/2f633a09c0ffee",
+        ),
+    )
+
+    await dp.feed_update(bot=router_app_context.bot, update=update)
+
+    assert router_app_context.stellar_service.check_url_xdr.called
+    args, kwargs = router_app_context.stellar_service.check_url_xdr.call_args
+    assert args[0] == "https://eurmtl.me/sign_tools/2f633a09c0ffee"
+    assert kwargs["full_data"] is True
+    requests = mock_telegram.get_requests()
+    assert any("Flagged" in r["data"]["text"] for r in requests if r["method"] == "sendMessage")
+
+
+@pytest.mark.asyncio
+async def test_decode_command_without_argument(mock_telegram, router_app_context):
+    """Bare /decode must not crash with IndexError, it should ask for an argument."""
+    dp = router_app_context.dispatcher
+    dp.message.middleware(RouterTestMiddleware(router_app_context))
+    dp.include_router(stellar_router)
+
+    update = types.Update(
+        update_id=31,
+        message=types.Message(
+            message_id=31,
+            date=datetime.datetime.now(),
+            chat=types.Chat(id=123, type="supergroup", title="Group"),
+            from_user=types.User(id=999, is_bot=False, first_name="User", username="user"),
+            text="/decode",
+        ),
+    )
+
+    await dp.feed_update(bot=router_app_context.bot, update=update)
+
+    requests = mock_telegram.get_requests()
+    assert any("Не вижу, что декодировать" in r["data"]["text"] for r in requests if r["method"] == "sendMessage")
+    assert not router_app_context.stellar_service.check_url_xdr.called
+    assert not router_app_context.stellar_service.decode_xdr.called
+
+
+@pytest.mark.asyncio
+async def test_decode_command_reply_with_url(mock_telegram, router_app_context):
+    """/decode as a reply to a message with a tool link decodes that link."""
+    dp = router_app_context.dispatcher
+    dp.message.middleware(RouterTestMiddleware(router_app_context))
+    dp.include_router(stellar_router)
+
+    router_app_context.stellar_service.check_url_xdr.return_value = ["Replied"]
+
+    url_msg = types.Message(
+        message_id=32,
+        date=datetime.datetime.now(),
+        chat=types.Chat(id=123, type="supergroup", title="Group"),
+        from_user=types.User(id=999, is_bot=False, first_name="User", username="user"),
+        text="тулза: https://eurmtl.me/sign_tools/2f633a09c0ffee).",
+    )
+
+    update = types.Update(
+        update_id=32,
+        message=types.Message(
+            message_id=33,
+            date=datetime.datetime.now(),
+            chat=types.Chat(id=123, type="supergroup", title="Group"),
+            from_user=types.User(id=999, is_bot=False, first_name="User", username="user"),
+            text="/decode",
+            reply_to_message=url_msg,
+        ),
+    )
+
+    await dp.feed_update(bot=router_app_context.bot, update=update)
+
+    args, _ = router_app_context.stellar_service.check_url_xdr.call_args
+    assert args[0] == "https://eurmtl.me/sign_tools/2f633a09c0ffee"
+    requests = mock_telegram.get_requests()
+    assert any("Replied" in r["data"]["text"] for r in requests if r["method"] == "sendMessage")
 
 
 # ============================================================================
