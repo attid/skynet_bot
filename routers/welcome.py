@@ -794,6 +794,25 @@ async def handle_chat_join_request(chat_join_request: ChatJoinRequest, bot: Bot,
     # await bot.approve_chat_join_request(chat_id, user_id)
 
 
+async def _answer_join_moderation_failure(
+    query: CallbackQuery,
+    callback_data: JoinCallbackData,
+    exc: TelegramBadRequest | TelegramForbiddenError,
+) -> None:
+    action = "approve" if callback_data.can_join else "decline"
+    action_text = "принять" if callback_data.can_join else "отклонить"
+    logger.warning(
+        "join-request moderation failed: "
+        f"action={action} chat_id={callback_data.chat_id} user_id={callback_data.user_id} "
+        f"callback_id={query.id} error={exc}"
+    )
+    with suppress(TelegramBadRequest, TelegramForbiddenError):
+        await query.answer(
+            f"⚠️ Не удалось {action_text} заявку: Telegram отклонил действие.",
+            show_alert=True,
+        )
+
+
 @router.callback_query(JoinCallbackData.filter())
 async def cq_join(
     query: CallbackQuery,
@@ -810,23 +829,32 @@ async def cq_join(
         return False
 
     if callback_data.can_join:
-        with suppress(TelegramBadRequest):
+        status_emoji = "✅"
+        try:
             await bot.approve_chat_join_request(callback_data.chat_id, callback_data.user_id)
-        await query.answer("✅")
-        if isinstance(query.message, Message):
-            await query.message.edit_reply_markup(
-                reply_markup=InlineKeyboardMarkup(
-                    inline_keyboard=[[InlineKeyboardButton(text=f"✅ {query.from_user.username}", callback_data="👀")]]
-                )
-            )
+        except (TelegramBadRequest, TelegramForbiddenError) as exc:
+            status_emoji = "⚠️"
+            await _answer_join_moderation_failure(query, callback_data, exc)
+        else:
+            await query.answer("✅")
 
     else:
-        await bot.decline_chat_join_request(callback_data.chat_id, callback_data.user_id)
-        await query.answer("❌")
-        if isinstance(query.message, Message):
+        status_emoji = "❌"
+        try:
+            await bot.decline_chat_join_request(callback_data.chat_id, callback_data.user_id)
+        except (TelegramBadRequest, TelegramForbiddenError) as exc:
+            status_emoji = "⚠️"
+            await _answer_join_moderation_failure(query, callback_data, exc)
+        else:
+            await query.answer("❌")
+
+    if isinstance(query.message, Message):
+        with suppress(TelegramBadRequest, TelegramForbiddenError):
             await query.message.edit_reply_markup(
                 reply_markup=InlineKeyboardMarkup(
-                    inline_keyboard=[[InlineKeyboardButton(text=f"❌ {query.from_user.username}", callback_data="👀")]]
+                    inline_keyboard=[
+                        [InlineKeyboardButton(text=f"{status_emoji} {query.from_user.username}", callback_data="👀")]
+                    ]
                 )
             )
 

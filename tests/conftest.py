@@ -101,12 +101,14 @@ async def mock_telegram(telegram_server_config):
         def __init__(self):
             self.received_requests = []
             self.custom_responses = {}  # method -> response_dict
+            self.custom_response_statuses = {}  # method -> HTTP status
             self.base_url = telegram_server_config["url"]
             self.files_by_id = {}
             self.files_by_path = {}
 
-        def add_response(self, method, response):
+        def add_response(self, method, response, status=200):
             self.custom_responses[method] = response
+            self.custom_response_statuses[method] = status
 
         def get_requests(self):
             return self.received_requests
@@ -146,7 +148,10 @@ async def mock_telegram(telegram_server_config):
 
         # Check for custom response
         if method in state.custom_responses:
-            return web.json_response(state.custom_responses[method])
+            return web.json_response(
+                state.custom_responses[method],
+                status=state.custom_response_statuses.get(method, 200),
+            )
 
         # Default responses for common methods
         if method == "getMe":

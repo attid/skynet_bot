@@ -1,7 +1,7 @@
 import datetime
 import json
 import pytest
-from aiogram import types
+from aiogram import Dispatcher, types
 
 from routers.welcome import router as welcome_router, CaptchaCallbackData, EmojiCaptchaCallbackData, JoinCallbackData
 from tests.conftest import RouterTestMiddleware
@@ -201,6 +201,117 @@ async def test_cq_join(mock_telegram, router_app_context):
     requests = mock_telegram.get_requests()
     assert any(r["method"] == "approveChatJoinRequest" for r in requests)
     assert any("✅" in r["data"]["text"] for r in requests if r["method"] == "answerCallbackQuery")
+    edit_markup_req = next((r for r in requests if r["method"] == "editMessageReplyMarkup"), None)
+    assert edit_markup_req is not None
+    reply_markup = json.loads(edit_markup_req["data"]["reply_markup"])
+    assert reply_markup["inline_keyboard"][0][0]["text"] == "✅ admin"
+
+
+def build_join_callback_update(can_join: bool, update_id: int = 300) -> types.Update:
+    return types.Update(
+        update_id=update_id,
+        callback_query=types.CallbackQuery(
+            id=f"cb-join-{update_id}",
+            chat_instance="ci-join",
+            from_user=types.User(id=123456, is_bot=False, first_name="Admin", username="admin"),
+            message=types.Message(
+                message_id=10,
+                date=datetime.datetime.now(),
+                chat=types.Chat(id=MTLChats.TestGroup, type="supergroup"),
+                text="Join request",
+            ),
+            data=JoinCallbackData(user_id=777, chat_id=MTLChats.TestGroup, can_join=can_join).pack(),
+        ),
+    )
+
+
+def register_error_collector(dp: Dispatcher) -> list[types.ErrorEvent]:
+    errors: list[types.ErrorEvent] = []
+
+    async def collect_error(event: types.ErrorEvent) -> None:
+        errors.append(event)
+
+    dp.errors.register(collect_error)
+    return errors
+
+
+@pytest.mark.asyncio
+async def test_cq_join_decline(mock_telegram, router_app_context):
+    dp = router_app_context.dispatcher
+    dp.callback_query.middleware(RouterTestMiddleware(router_app_context))
+    dp.include_router(welcome_router)
+    router_app_context.admin_service.set_chat_admins(MTLChats.TestGroup, [123456])
+
+    await dp.feed_update(bot=router_app_context.bot, update=build_join_callback_update(can_join=False, update_id=301))
+
+    requests = mock_telegram.get_requests()
+    assert any(r["method"] == "declineChatJoinRequest" for r in requests)
+    answer_req = next((r for r in requests if r["method"] == "answerCallbackQuery"), None)
+    assert answer_req is not None
+    assert answer_req["data"]["text"] == "❌"
+    edit_markup_req = next((r for r in requests if r["method"] == "editMessageReplyMarkup"), None)
+    assert edit_markup_req is not None
+    reply_markup = json.loads(edit_markup_req["data"]["reply_markup"])
+    assert reply_markup["inline_keyboard"][0][0]["text"] == "❌ admin"
+
+
+@pytest.mark.parametrize(
+    ("can_join", "method", "action_text"),
+    [
+        (True, "approveChatJoinRequest", "принять"),
+        (False, "declineChatJoinRequest", "отклонить"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("error_code", "description"),
+    [
+        (403, "Forbidden: user is deactivated"),
+        (400, "Bad Request: USER_ID_INVALID"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_cq_join_expected_telegram_error_does_not_reach_sentry(
+    mock_telegram,
+    router_app_context,
+    can_join,
+    method,
+    action_text,
+    error_code,
+    description,
+):
+    dp = router_app_context.dispatcher
+    dp.callback_query.middleware(RouterTestMiddleware(router_app_context))
+    dp.include_router(welcome_router)
+    errors = register_error_collector(dp)
+    router_app_context.admin_service.set_chat_admins(MTLChats.TestGroup, [123456])
+    mock_telegram.add_response(
+        method,
+        {"ok": False, "error_code": error_code, "description": description},
+        status=error_code,
+    )
+
+    await dp.feed_update(
+        bot=router_app_context.bot, update=build_join_callback_update(can_join=can_join, update_id=302)
+    )
+
+    requests = mock_telegram.get_requests()
+    assert any(r["method"] == method for r in requests)
+
+    answer_req = next((r for r in requests if r["method"] == "answerCallbackQuery"), None)
+    assert answer_req is not None
+    answer_text = answer_req["data"]["text"]
+    assert answer_text.startswith("⚠️")
+    assert action_text in answer_text
+    assert "✅" not in answer_text
+    assert "❌" not in answer_text
+
+    edit_markup_req = next((r for r in requests if r["method"] == "editMessageReplyMarkup"), None)
+    assert edit_markup_req is not None
+    reply_markup = json.loads(edit_markup_req["data"]["reply_markup"])
+    button = reply_markup["inline_keyboard"][0][0]
+    assert button["text"] == "⚠️ admin"
+    assert button["callback_data"] == "👀"
+    assert errors == []
 
 
 # --- Additional Router Integration Tests (No Fake Bot/Message) ---
