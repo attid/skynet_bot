@@ -2,6 +2,7 @@
 """XDR and transaction utility functions for Stellar blockchain."""
 
 import base64
+from decimal import Decimal, InvalidOperation
 from typing import List, Optional
 
 from loguru import logger
@@ -31,6 +32,26 @@ AMOUNT_OPERATIONS = {
     "CreatePassiveSellOffer",
     "Clawback",
 }
+
+# Dust XLM payments below this amount are treated as spam by the "SPAM" filter.
+SPAM_MAX_XLM_PAYMENT = Decimal("0.1")
+
+
+def is_spam_payment(operation) -> bool:
+    """Return True for dust XLM payments that the "SPAM" filter drops.
+
+    stellar-sdk keeps ``Payment.amount`` as a string and may render it in scientific
+    notation ("1E-7" for one stroop), so the threshold must be compared numerically.
+    """
+    if getattr(getattr(operation, "asset", None), "code", None) != "XLM":
+        return False
+
+    try:
+        amount = Decimal(str(operation.amount))
+    except (InvalidOperation, TypeError, ValueError):
+        return False
+
+    return amount < SPAM_MAX_XLM_PAYMENT
 
 
 def good_operation(operation, operation_name: str, filter_operation: list, ignore_operation: list) -> bool:
@@ -136,8 +157,17 @@ async def decode_xdr(
     result.append(f"  Всего {len(transaction.transaction.operations)} операций\n")
 
     for idx, operation in enumerate(transaction.transaction.operations):
+        op_name = type(operation).__name__
+
         # When filter_sum is active, skip operations without meaningful amounts
-        if filter_sum > 0 and type(operation).__name__ not in AMOUNT_OPERATIONS:
+        if filter_sum > 0 and op_name not in AMOUNT_OPERATIONS:
+            continue
+
+        # Ignored operation types and dust XLM payments ("SPAM") are dropped before
+        # the header line, so they do not leave empty "Операция N" entries behind.
+        if op_name in ignore_operation:
+            continue
+        if "SPAM" in ignore_operation and op_name == "Payment" and is_spam_payment(operation):
             continue
 
         # When filter_account is set and tx source is different,
@@ -158,7 +188,7 @@ async def decode_xdr(
             if filter_account not in op_accounts:
                 continue
 
-        result.append(f"Операция {idx} - {type(operation).__name__}")
+        result.append(f"Операция {idx} - {op_name}")
         if operation.source:
             op_source_name = await address_id_to_username(
                 operation.source.account_id, full_data=full_data, grist_manager=grist_manager, global_data=global_data
@@ -166,8 +196,6 @@ async def decode_xdr(
             result.append(f"*** для аккаунта {op_source_name}")
 
         if good_operation(operation, "Payment", filter_operation, ignore_operation):
-            if "SPAM" in ignore_operation and operation.asset.code == "XLM" and operation.amount < "0.1":
-                continue
             if float(operation.amount) > filter_sum:
                 if (filter_asset is None) or (operation.asset == filter_asset):
                     data_exist = True
