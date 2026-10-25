@@ -52,6 +52,10 @@ class Settings(BaseSettings):
     grist_base_url: str = "https://grist.eurmtl.me/api/docs"
     rely_grist_base_url: str = "https://mtl-rely.getgrist.com/api/docs"
     miniapps_key: str | None = None
+    # Combot Anti-Spam (CAS) checks. The key is the Combot API key from
+    # combot.org -> Settings -> API key; a free Combot account is enough.
+    cas_api_key: SecretStr | None = None
+    cas_api_url: str = "https://api.cas.chat/check"
     test_mode: bool = True
 
     @property
