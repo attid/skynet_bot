@@ -218,7 +218,7 @@ def test_vote_distribution_limit_accepts_any_largest_share_up_to_forty_percent()
 # ============================================================================
 
 import pytest  # noqa: E402
-from stellar_sdk import Account, TransactionEnvelope, Network  # noqa: E402
+from stellar_sdk import Account, TransactionEnvelope, Network, StrKey  # noqa: E402
 
 ACC = "GACKTN5DAZGWXRWB2WLM6OPBDHAMT6SJNGLJZPQMEZBUR4JUGBX2UK7V"
 VOTE_KEY = "GBYH3M3REQM3WQOJY26FYORN23EXY22FWBHVZ74TT5GYOF22IIA7YSOX"
@@ -323,6 +323,45 @@ async def test_gen_vote_xdr_removes_extra_signer(monkeypatch):
     signer_ops = [op for op in operations if op.signer is not None]
     assert len(signer_ops) == 1
     assert signer_ops[0].signer.weight.uint32 == 0
+
+
+@pytest.mark.asyncio
+async def test_gen_vote_xdr_adds_signer_missing_on_account(monkeypatch):
+    """A reference signer absent from the account must be added, not treated as unchanged.
+
+    ``votes`` in the reference list holds the issuer weight, so an account that is not a full
+    copy of the fund signer set used to look up to date and produced no operation at all.
+    """
+    patch_account(monkeypatch, fake_account({ACC: 0, VOTE_KEY: 7}, (6, 6, 6)))
+    vote_list = [
+        MyShareHolder(account_id=VOTE_KEY, votes=7, calculated_votes=7),
+        MyShareHolder(account_id=OTHER_KEY, votes=3, calculated_votes=3),
+    ]
+
+    xdr = await voting_utils.gen_vote_xdr(ACC, vote_list, source=ACC, remove_master=True)
+
+    assert xdr is not None
+    operations = decode_set_options(xdr)
+    signer_ops = [op for op in operations if op.signer is not None]
+    assert len(signer_ops) == 1
+    assert signer_ops[0].signer.key.ed25519.uint256 == StrKey.decode_ed25519_public_key(OTHER_KEY)
+    assert signer_ops[0].signer.weight.uint32 == 3
+    # thresholds already match: no extra op
+    assert len(operations) == 1
+
+
+@pytest.mark.asyncio
+async def test_gen_vote_xdr_returns_none_when_account_is_full_copy(monkeypatch):
+    """An account holding every reference signer with the right weights stays untouched."""
+    patch_account(monkeypatch, fake_account({ACC: 0, VOTE_KEY: 7, OTHER_KEY: 3}, (6, 6, 6)))
+    vote_list = [
+        MyShareHolder(account_id=VOTE_KEY, votes=7, calculated_votes=7),
+        MyShareHolder(account_id=OTHER_KEY, votes=3, calculated_votes=3),
+    ]
+
+    xdr = await voting_utils.gen_vote_xdr(ACC, vote_list, source=ACC, remove_master=True)
+
+    assert xdr is None
 
 
 # ============================================================================

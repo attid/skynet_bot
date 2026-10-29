@@ -560,6 +560,8 @@ async def plan_account_vote_ops(
 
     Weights, thresholds and the master weight are compared with the current
     account state, so an up-to-date account yields ``None`` (nothing to sign).
+    Signers of the reference list that are missing on the account are planned
+    as additions with their calculated weight.
 
     Args:
         public_key: Account to inspect.
@@ -581,13 +583,15 @@ async def plan_account_vote_ops(
         int(source_account.thresholds.high_threshold),
     )
 
+    # `votes` must describe *this* account. The reference list carries the weights copied from
+    # the issuer account, so a signer missing here would look "already up to date" and never be
+    # added. Absent signers get weight 0, which is what turns them into signer additions.
+    known_signers = set()
+    for arr in vote_list:
+        arr.votes = current_weights.get(arr.account_id, 0)
+        known_signers.add(arr.account_id)
     for s in sg:
-        was_found = False
-        for arr in vote_list:
-            if arr.account_id == s.account_id:
-                arr.votes = s.weight
-                was_found = True
-        if not was_found and s.account_id != public_key:
+        if s.account_id not in known_signers and s.account_id != public_key:
             vote_list.append(MyShareHolder(account_id=s.account_id, votes=s.weight))
 
     vote_list.sort(key=lambda k: k.calculated_votes, reverse=True)
