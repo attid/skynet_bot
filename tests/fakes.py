@@ -788,7 +788,8 @@ class FakePollService:
         return True
 
     def _load_poll(self, session, chat_id, message_id):
-        return self._polls.get((chat_id, message_id), {})
+        # Mirrors PollService.load_poll: an unknown poll comes back as a closed empty poll.
+        return self._polls.get((chat_id, message_id), {"closed": True, "question": "", "options": []})
 
     def _save_mtla_poll(self, session, poll_id, poll_data):
         self._mtla_polls[poll_id] = poll_data
